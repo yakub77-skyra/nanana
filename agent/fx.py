@@ -1,9 +1,8 @@
-import html, json, os
+import html, os
 from pathlib import Path
 import httpx
 from playwright.sync_api import sync_playwright
 from .config import settings
-from .renderer import CARD  # Phase-1 article card, reused
 
 RAW = Path(settings.output_dir).resolve() / "raw"
 
@@ -25,17 +24,16 @@ def spans(text, timings, step=0.3):
         out.append(f'<span class="w"><i style="animation-delay:{d:.2f}s"></i><b>{html.escape(w)}</b></span>')
     return " ".join(out)
 
-KARAOKE_CSS = """.w{position:relative;display:inline-block;margin-right:.32ch}
-.w i{position:absolute;left:-3px;right:-3px;top:6%;height:88%;background:#d40000;opacity:.95;transform:scaleX(0);transform-origin:left;animation:hl .16s forwards}
+# FIXED: Continuous highlight (closes gaps between words)
+KARAOKE_CSS = """.w{position:relative;display:inline-block;margin-right:0.25ch}
+.w i{position:absolute;left:-2px;right:-0.35ch;top:6%;height:88%;background:#d40000;opacity:.95;transform:scaleX(0);transform-origin:left;animation:hl .16s forwards}
 .w b{position:relative;font-weight:inherit}@keyframes hl{to{transform:scaleX(1)}}"""
 
-# ---------- MAP SCENE (offline Natural Earth, dark terrain vibe) ----------
-_geo_cache = {}
 def _geojson():
-    if not _geo_cache:
+    if not hasattr(_geojson, "cache"):
         url = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson"
-        _geo_cache["data"] = httpx.get(url, timeout=60).json()
-    return _geo_cache["data"]
+        _geojson.cache = httpx.get(url, timeout=60).json()
+    return _geojson.cache
 
 def map_html(country, pin, overlay_text, dur):
     gj = _geojson()["features"]
@@ -51,7 +49,7 @@ def map_html(country, pin, overlay_text, dur):
     txs = [c[0] for r in tr for c in r]; tys = [c[1] for r in tr for c in r]
     cx, cy = (min(txs)+max(txs))/2, (tys[0]+max(tys))/2
     w = max(max(txs)-min(txs), 20); pad = w * 2.2
-    X = lambda lon: (lon - xs[0]) * 6; Y = lambda lat: (ys[1] - lat) * 6  # ys[1]=90
+    X = lambda lon: (lon - xs[0]) * 6; Y = lambda lat: (ys[1] - lat) * 6
     vx, vy, vw, vh = X(cx-pad/2), Y(cy+pad/2), X(cx+pad/2)-X(cx-pad/2), Y(cy-pad/2)-Y(cy+pad/2)
     def path(f, cls):
         d = "".join("M" + "L".join(f"{X(c[0]):.0f} {Y(c[1]):.0f}" for c in r[::2]) + "Z" for r in rings(f))
@@ -63,8 +61,7 @@ def map_html(country, pin, overlay_text, dur):
 *{{margin:0;padding:0;box-sizing:border-box}}html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial}}
 #wrap{{position:absolute;inset:0;animation:zm {dur:.1f}s ease-in forwards;transform-origin:50% 50%}}
 @keyframes zm{{from{{transform:scale(1)}}to{{transform:scale(2.1)}}}}
-svg{{width:100%;height:100%}}
-.l{{fill:#161616;stroke:#242424;stroke-width:1}}.t{{fill:#b00;stroke:#f33;stroke-width:2;filter:drop-shadow(0 0 18px #f00)}}
+svg{{width:100%;height:100%}}.l{{fill:#161616;stroke:#242424;stroke-width:1}}.t{{fill:#b00;stroke:#f33;stroke-width:2;filter:drop-shadow(0 0 18px #f00)}}
 #noise{{position:absolute;inset:0;opacity:.18;background:repeating-radial-gradient(circle at 30% 40%,#111 0 2px,#000 2px 5px)}}
 #vig{{position:absolute;inset:0;background:radial-gradient(circle,transparent 40%,#000 95%)}}
 #pin{{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center}}
@@ -82,7 +79,6 @@ svg{{width:100%;height:100%}}
 <div id="logo">INDIA<b>24</b></div><div id="handle">{settings.ig_handle}</div>
 </body></html>"""
 
-# ---------- QUOTE CARD ----------
 def quote_html(text, person, timings, dur):
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 *{{margin:0;box-sizing:border-box}}html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Georgia,serif}}
@@ -93,7 +89,6 @@ def quote_html(text, person, timings, dur):
 </style></head><body><div id="q">{spans(text, timings)}<div id="p">— {html.escape(person)}</div></div>
 <div id="logo">INDIA<b>24</b></div><div id="handle">{settings.ig_handle}</div></body></html>"""
 
-# ---------- BREAKING CARD ----------
 def breaking_html(headline, sub, img_path, dur):
     import base64
     b64 = base64.b64encode(Path(img_path).read_bytes()).decode()
@@ -105,8 +100,7 @@ def breaking_html(headline, sub, img_path, dur):
 @keyframes pop{{from{{opacity:0;transform:translate(-50%,-50%) scale(.9)}}}}
 #bk{{font-size:150px;font-weight:900;letter-spacing:-4px;color:#000;padding:40px 50px 0}}
 #hl{{padding:10px 50px;font-size:56px;font-weight:800;line-height:1.3;color:#000}}
-.r{{background:#d40000;color:#000}}
-#sub{{padding:14px 50px;font-size:28px;color:#333}}
+.r{{background:#d40000;color:#000}}#sub{{padding:14px 50px;font-size:28px;color:#333}}
 img{{width:100%;height:700px;object-fit:cover}}
 #date{{position:absolute;left:40px;bottom:40px;background:#c00;color:#fff;font-weight:900;font-size:40px;padding:10px 20px}}
 #handle{{position:fixed;top:8%;right:44px;color:#fff;font-weight:800;font-size:34px}}
@@ -114,7 +108,6 @@ img{{width:100%;height:700px;object-fit:cover}}
 <div id="sub">{html.escape(sub or "")}</div><img src="data:image/jpeg;base64,{b64}"><div id="date">30 AUG</div></div>
 <div id="handle">{settings.ig_handle}</div></body></html>"""
 
-# ---------- OUTRO (render once, cache) ----------
 def outro_video():
     cache = Path(settings.output_dir) / "outro.mp4"
     if cache.exists(): return str(cache)

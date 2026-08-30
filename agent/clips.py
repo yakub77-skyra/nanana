@@ -3,6 +3,7 @@ from urllib.parse import quote
 import httpx, imageio_ffmpeg as ioff
 from loguru import logger
 from .config import settings
+from . import media
 
 FF = ioff.get_ffmpeg_exe()
 
@@ -48,10 +49,20 @@ def viral_clip(query, path):
     except Exception as e:
         logger.warning(f"viral clip failed → fallback ({e})"); return None
 
+def get_image(query, path):
+    p = media.commons_image(query, path)          # real photo first
+    if p: return p
+    try:
+        return ai_image(f"photojournalistic news photo, realistic, no text: {query}", path)
+    except Exception:
+        return path  # editor has placeholder fallback
+
 def get_clip(query, tag, dur):
     base = os.path.join(settings.output_dir, f"clip_{tag}")
-    for fn in (stock_clip, viral_clip):
-        p = fn(query, base + "_src.mp4")
-        if p: return normalize(p, base + ".mp4", dur)
-    img = ai_image(f"photojournalistic news photo, realistic: {query}", base + ".jpg")
-    return kenburns(img, base + ".mp4", dur)
+    p = media.archive_clip(query, base + "_ia.mp4")      # REAL footage
+    if p: return normalize(p, base + ".mp4", dur)
+    p = stock_clip(query, base + "_st.mp4")              # real stock
+    if p: return normalize(p, base + ".mp4", dur)
+    p = viral_clip(query, base + "_v.mp4")               # your 5-8s policy (local runs)
+    if p: return normalize(p, base + ".mp4", dur)
+    return kenburns(get_image(query, base + ".jpg"), base + ".mp4", dur)  # last resort

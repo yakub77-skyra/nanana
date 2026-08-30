@@ -23,6 +23,7 @@ class Scene(BaseModel):
     # breaking
     breaking_headline: Optional[str] = None; breaking_sub: Optional[str] = None
     breaking_image_query: Optional[str] = None
+    image_url: Optional[str] = None   # real article photo, auto-attached
 
 class StorySchema(BaseModel):
     scenes: list[Scene] = Field(description="Story order: map hook first, then clip/article/quote scenes, end with 1-2 breaking scenes for OTHER headlines")

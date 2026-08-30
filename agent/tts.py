@@ -31,4 +31,8 @@ def speak(text: str, tag: str):
     os.makedirs(settings.output_dir, exist_ok=True)
     mp3 = os.path.join(settings.output_dir, f"vo_{tag}.mp3")
     w = asyncio.run(_synth(text, mp3))
-    return {"mp3": mp3, "words": w, "dur": (w[-1][2] if w else max(2.5, len(text) / 14.0)) + 0.5}
+    return {"mp3": mp3, "words": w, "dur": (w[-1][2] if w else max(2.5, len(text) / 14.0)) + 0.5}
+
+def speak_full(texts, tag="full"):
+    script = " ".join(t for t in texts if t)
+    return speak(script, tag)

@@ -32,6 +32,7 @@ jobs:
           ZERNIO_ACCOUNT_ID: ${{ secrets.ZERNIO_ACCOUNT_ID }}
           GH_USER: ${{ github.repository_owner }}
           GH_REPO: ${{ github.event.repository.name }}
+          NARRATION_LANG: hi
         run: python main.py
       - name: Save reel backup
         if: always()

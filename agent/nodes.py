@@ -147,7 +147,11 @@ Build 6-9 scenes in order:
      quote (quote_text+person)
 6+) 1-2 breaking scenes from OTHER headlines below (breaking_headline, breaking_sub, breaking_image_query; narration = headline)
 Other headlines today:\n{others}
-Also write caption + 8 hashtags."""
+Also write caption + 8 hashtags.
+
+CRITICAL VISUAL RULES:
+- clip_query and breaking_image_query must be GENERIC searchable footage keywords (e.g. "flood river rescue boat", "parliament building"), NEVER proper nouns or specific names.
+- Never use graphic, gory, or disturbing imagery descriptions."""
 
     resp = llm_create(prompt, StorySchema)
     return {"schema": resp.model_dump(), "article": a}
@@ -156,8 +160,22 @@ Also write caption + 8 hashtags."""
 # 5. RENDER SCENES (each scene → TTS + visual → segment file)
 # ------------------------------------------------------------------
 def render_scenes(state):
-    from . import editor, fx
-    segs = [editor.render_scene(Scene(**s), i) for i, s in enumerate(state["schema"]["scenes"])]
+    from . import editor, fx, media
+    scenes = [Scene(**s) for s in state["schema"]["scenes"]]
+
+    # Attach REAL article photos (match scene → article → og:image)
+    for sc in scenes:
+        if sc.type in ("article", "breaking") and not sc.image_url:
+            target = (sc.headline or sc.breaking_headline or "").lower()
+            hit = next((a for a in state["articles"]
+                        if sum(w in a["title"].lower() for w in target.split()[:5]) >= 2), None)
+            if hit:
+                sc.image_url = media.og_image(hit["link"])
+                logger.info(f"🖼️ Real article photo attached: {hit['source']}")
+
+    # ONE human-like voice take for the whole reel (no more breaks)
+    take = tts.speak_full([sc.narration for sc in scenes], "full")
+    segs = editor.render_all(scenes, take)
     segs.append(fx.outro_video())
     return {"segments": segs}
 
@@ -234,7 +252,11 @@ Intro: A catchy hook in {lang_hint}.
 Scenes: Pick the 8 most important/viral DISTINCT stories from the feed below. 
 Each scene needs a short ENGLISH CAPS headline, a 1-sentence {lang_hint} narration, and an image query.
 Feed:\n{listing}
-Also write caption + 8 hashtags."""
+Also write caption + 8 hashtags.
+
+CRITICAL VISUAL RULES:
+- image_query must be GENERIC searchable footage keywords (e.g. "stock market crash", "cricket stadium crowd"), NEVER proper nouns or specific names.
+- Never use graphic, gory, or disturbing imagery descriptions."""
 
     resp = llm_create(prompt, RoundupSchema)
     
