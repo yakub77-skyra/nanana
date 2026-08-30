@@ -5,7 +5,7 @@ from playwright.sync_api import sync_playwright
 from .config import settings
 from .renderer import CARD  # Phase-1 article card, reused
 
-RAW = Path(settings.output_dir) / "raw"
+RAW = Path(settings.output_dir).resolve() / "raw"
 
 def record_html(page_html, dur, name):
     RAW.mkdir(parents=True, exist_ok=True)
@@ -14,7 +14,7 @@ def record_html(page_html, dur, name):
         b = pw.chromium.launch()
         ctx = b.new_context(viewport={"width": 1080, "height": 1920},
                             record_video_dir=str(RAW), record_video_size={"width": 1080, "height": 1920})
-        pg = ctx.new_page(); pg.goto(p.as_uri()); pg.wait_for_timeout(int(dur * 1000))
+        pg = ctx.new_page(); pg.goto(p.resolve().as_uri()); pg.wait_for_timeout(int(dur * 1000))
         v = pg.video; pg.close(); out = v.path(); ctx.close(); b.close()
     return out
 
