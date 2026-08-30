@@ -173,9 +173,7 @@ def render_scenes(state):
                 sc.image_url = media.og_image(hit["link"])
                 logger.info(f"🖼️ Real article photo attached: {hit['source']}")
 
-    # ONE human-like voice take for the whole reel (no more breaks)
-    take = tts.speak_full([sc.narration for sc in scenes], "full")
-    segs = editor.render_all(scenes, take)
+    segs = [editor.render_scene(sc, i) for i, sc in enumerate(scenes)]
     segs.append(fx.outro_video())
     return {"segments": segs}
 

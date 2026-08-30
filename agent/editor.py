@@ -101,7 +101,9 @@ def render_all(scenes, take):
     return segs
 
 # ---------------- per-scene renderer ----------------
-def render_scene(scene, i, vo):
+def render_scene(scene, i, vo=None):
+    if vo is None:
+        vo = tts.speak(scene.narration, f"s{i}") if scene.narration else None
     dur = vo["dur"] if vo else 4.0
     out = os.path.join(settings.output_dir, f"seg_{i}.mp4")
     
