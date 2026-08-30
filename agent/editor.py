@@ -138,8 +138,8 @@ def render_scene(scene: Scene, i: int) -> str:
 def assemble(segments, final):
     segments = [_ensure_audio(s) for s in segments]   # ← fixes concat crash (outro has no audio)
     listf = os.path.join(settings.output_dir, "segs.txt")
-    with open(listf, "w") as f:
-        f.write("\n".join(f"file '{s}'" for s in segments))
+    with open(listf, "w", encoding="utf-8") as f:
+        f.write("\n".join(f"file '{s.replace(os.sep, '/')}'" for s in segments))
     joined = os.path.join(settings.output_dir, "joined.mp4")
     subprocess.run([FF, "-y", "-f", "concat", "-safe", "0", "-i", listf,
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30",
