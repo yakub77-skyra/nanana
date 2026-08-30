@@ -16,4 +16,4 @@ def speak(text, tag):
     os.makedirs(settings.output_dir, exist_ok=True)
     mp3 = os.path.join(settings.output_dir, f"vo_{tag}.mp3")
     w = asyncio.run(_synth(text, mp3))
-    return {"mp3": mp3, "words": w, "dur": (w[-1][2] if w else max(2.5, len(text)/14.0)) + 0.5}s
+    return {"mp3": mp3, "words": w, "dur": (w[-1][2] if w else max(2.5, len(text)/14.0)) + 0.5}
