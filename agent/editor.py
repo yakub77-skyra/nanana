@@ -141,7 +141,9 @@ def assemble(segments, final):
     with open(listf, "w") as f:
         f.write("\n".join(f"file '{s}'" for s in segments))
     joined = os.path.join(settings.output_dir, "joined.mp4")
-    subprocess.run([FF, "-y", "-f", "concat", "-safe", "0", "-i", listf, "-c", "copy", joined],
+    subprocess.run([FF, "-y", "-f", "concat", "-safe", "0", "-i", listf,
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30",
+                    "-c:a", "aac", "-ar", "44100", "-ac", "2", joined],
                    check=True, capture_output=True)
 
     music = os.path.join("assets", "music.mp3")
