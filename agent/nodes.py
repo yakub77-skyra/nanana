@@ -160,7 +160,7 @@ CRITICAL VISUAL RULES:
 # 5. RENDER SCENES (each scene → TTS + visual → segment file)
 # ------------------------------------------------------------------
 def render_scenes(state):
-    from . import editor, fx, media
+    from . import editor, fx, media, tts
     scenes = [Scene(**s) for s in state["schema"]["scenes"]]
 
     # Attach REAL article photos (match scene → article → og:image)
