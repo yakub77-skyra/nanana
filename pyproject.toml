@@ -1,0 +1,16 @@
+[project]
+name = "news-reel-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2",
+    "instructor>=1.5",
+    "openai>=1.50",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.5",
+    "feedparser>=6.0",
+    "edge-tts>=6.1",
+    "playwright>=1.47",
+    "imageio-ffmpeg>=0.5",
+    "loguru>=0.7",
+]
