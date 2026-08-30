@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
+from typing import List
 
 class Article(BaseModel):
     title: str; link: str; source: str; published: str = ""
@@ -26,3 +27,30 @@ class Scene(BaseModel):
 class StorySchema(BaseModel):
     scenes: list[Scene] = Field(description="Story order: map hook first, then clip/article/quote scenes, end with 1-2 breaking scenes for OTHER headlines")
     caption: str = ""; hashtags: list[str] = []
+
+class RoundupScene(BaseModel):
+    headline: str = Field(description="Short 5-6 word English ALL CAPS headline")
+    narration: str = Field(description="1 quick spoken sentence (Hindi or English based on config) explaining the event")
+    image_query: str = Field(description="Visual search query for the background image")
+
+class RoundupSchema(BaseModel):
+    intro_narration: str = Field(description="Hook: e.g., 'आइए जानते हैं भारत में पिछले 24 घंटों में क्या हुआ'")
+    scenes: List[RoundupScene] = Field(description="Exactly 8 fast-paced news headlines")
+    caption: str
+    hashtags: List[str]
+
+# Add to the bottom of agent/schemas.py
+
+class RoundupScene(BaseModel):
+    headline: str = Field(description="Short 5-6 word English ALL CAPS headline")
+    narration: str = Field(description="1 quick spoken sentence explaining the event")
+    image_query: str = Field(description="Visual search query for the background image")
+
+class RoundupSchema(BaseModel):
+    intro_narration: str = Field(description="Hook: e.g., 'आइए जानते हैं भारत में पिछले 24 घंटों में क्या हुआ'")
+    scenes: list[RoundupScene] = Field(description="Exactly 8 fast-paced news headlines")
+    caption: str
+    hashtags: list[str]
+
+class CommentReply(BaseModel):
+    text: str = Field(description="The generated reply text")
