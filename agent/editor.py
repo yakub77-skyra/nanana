@@ -1,6 +1,7 @@
 import html as _html
 import os
 import subprocess
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 import imageio_ffmpeg as ioff
