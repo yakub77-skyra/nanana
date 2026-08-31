@@ -14,13 +14,18 @@ def download(url, path, timeout=120):
         logger.warning(f"download failed: {e}")
     return None
 
-def og_image(article_url):
-    """The REAL photo the news site published with the article."""
+def og_image(url):
+    if not url or "news.google.com" in url:
+        return None
     try:
-        t = httpx.get(article_url, timeout=15, headers=UA, follow_redirects=True).text
+        t = httpx.get(url, timeout=15, headers=UA, follow_redirects=True).text
         m = (re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)', t)
              or re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', t))
-        return m.group(1) if m else None
+        img = m.group(1) if m else None
+        if not img or not img.startswith("http"): return None
+        if any(bad in img.lower() for bad in ("google", "logo", "icon", "sprite", "placeholder")):
+            return None
+        return img
     except Exception:
         return None
 

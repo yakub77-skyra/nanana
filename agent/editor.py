@@ -125,6 +125,7 @@ def render_scene(scene, i, vo=None):
         
     elif scene.type == "clip":
         clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur)
+        if not clip: raise RuntimeError("no REAL footage found → scene skipped")
         if scene.red_circle or scene.stat_text:
             ov = os.path.join(settings.output_dir, f"ov_{i}.png")
             _overlay_png(scene, ov)

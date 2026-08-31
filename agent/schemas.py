@@ -40,18 +40,5 @@ class RoundupSchema(BaseModel):
     caption: str
     hashtags: List[str]
 
-# Add to the bottom of agent/schemas.py
-
-class RoundupScene(BaseModel):
-    headline: str = Field(description="Short 5-6 word English ALL CAPS headline")
-    narration: str = Field(description="1 quick spoken sentence explaining the event")
-    image_query: str = Field(description="Visual search query for the background image")
-
-class RoundupSchema(BaseModel):
-    intro_narration: str = Field(description="Hook: e.g., 'आइए जानते हैं भारत में पिछले 24 घंटों में क्या हुआ'")
-    scenes: list[RoundupScene] = Field(description="Exactly 8 fast-paced news headlines")
-    caption: str
-    hashtags: list[str]
-
 class CommentReply(BaseModel):
-    text: str = Field(description="The generated reply text")
+    text: str = Field(description="The generated reply text")

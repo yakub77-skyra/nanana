@@ -16,6 +16,8 @@ dependencies = [
     "loguru>=0.7",
     "pillow>=10.0",
     "yt-dlp>=2024.8.6",
+    "googlenewsdecoder>=0.1.7",
+
 ]
 
 [build-system]
