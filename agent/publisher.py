@@ -16,7 +16,9 @@ def _public_url(mp4):
     subprocess.run(["git", "add", "history.json", "analytics.json"], capture_output=True)
     subprocess.run(["git", "-c", "user.name=reel-agent", "-c", "user.email=agent@bot",
                     "commit", "-m", "daily reel", "--allow-empty"], check=True)
-    subprocess.run(["git", "push"], check=True)
+    subprocess.run(["git", "pull", "--rebase", "origin", "main"], capture_output=True)
+    subprocess.run(["git", "push", "origin", "main"], check=True)
+
     time.sleep(45)
     return f"https://{settings.gh_user}.github.io/{settings.gh_repo}/{rel}"
 
