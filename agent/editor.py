@@ -75,6 +75,10 @@ def _slice(mp3, s, e, out):
 
 def _scene_windows(scenes, words):
     """Aligns the single continuous voice take to each scene."""
+    # SAFETY NET: If TTS returned no words, make scenes silent (4s each)
+    if not words:
+        return [None] * len(scenes)
+        
     toks = [_norm(w) for w, _, _ in words]
     wins, ptr = [], 0
     for sc in scenes:
@@ -92,12 +96,19 @@ def _scene_windows(scenes, words):
 def render_all(scenes, take):
     segs = []
     for i, (sc, w) in enumerate(zip(scenes, _scene_windows(scenes, take["words"]))):
-        vo = None
-        if w:
-            sp = os.path.join(settings.output_dir, f"vo_s{i}.mp3")
-            _slice(take["mp3"], w[0], w[1], sp)
-            vo = {"mp3": sp, "words": w[2], "dur": w[1] - w[0] + 0.1}
-        segs.append(render_scene(sc, i, vo))
+        try:
+            vo = None
+            if w:
+                sp = os.path.join(settings.output_dir, f"vo_s{i}.mp3")
+                _slice(take["mp3"], w[0], w[1], sp)
+                vo = {"mp3": sp, "words": w[2], "dur": w[1] - w[0] + 0.1}
+            segs.append(render_scene(sc, i, vo))
+        except Exception as e:
+            # SAFETY NET: Skip broken scenes instead of killing the whole reel
+            logger.error(f"❌ Scene {i} ({sc.type}) failed → skipped: {e}")
+            
+    if not segs:
+        raise RuntimeError("All scenes failed to render — check logs")
     return segs
 
 # ---------------- per-scene renderer ----------------
@@ -164,6 +175,10 @@ def render_scene(scene, i, vo=None):
 
 # ---------------- final assembly ----------------
 def assemble(segments, final):
+    # SAFETY NET: Fail loudly if only the outro exists (no more silent outro-only reels)
+    if len(segments) < 2:
+        raise RuntimeError("Only outro rendered — content scenes failed. Check logs above.")
+        
     segments = [_ensure_audio(s) for s in segments]
     listf = os.path.join(settings.output_dir, "segs.txt")
     with open(listf, "w", encoding="utf-8") as f:

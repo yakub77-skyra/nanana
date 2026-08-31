@@ -50,3 +50,11 @@ def speak(text: str, tag: str):
             dur = max(3.0, len(text) / 10.0)
             
     return {"mp3": mp3, "words": w, "dur": dur}
+
+def speak_full(narrations, tag: str = "full"):
+    if isinstance(narrations, list):
+        text = " ".join(n for n in narrations if n).strip()
+    else:
+        text = narrations or ""
+    return speak(text, tag)
+

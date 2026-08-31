@@ -154,16 +154,32 @@ CRITICAL VISUAL RULES:
 - Never use graphic, gory, or disturbing imagery descriptions."""
 
     resp = llm_create(prompt, StorySchema)
-    return {"schema": resp.model_dump(), "article": a}
+    schema = resp.model_dump()
+
+    # SAFETY NET: if a weak free model returns too few scenes, build a guaranteed reel
+    if len(schema.get("scenes", [])) < 3:
+        logger.warning("⚠️ Model returned too few scenes → fallback schema built")
+        t = a["title"]
+        schema["scenes"] = [
+            Scene(type="map", country="India", overlay_text=t[:45].upper(),
+                  narration=t).model_dump(),
+            Scene(type="article", masthead=a["source"], headline=t,
+                  narration=t).model_dump(),
+            Scene(type="breaking", breaking_headline=t[:60].upper(),
+                  breaking_sub=a["source"], breaking_image_query="news",
+                  narration=t).model_dump(),
+        ]
+        schema.setdefault("caption", t)
+        schema.setdefault("hashtags", ["india", "news", "breaking"])
+    return {"schema": schema, "article": a}
 
 # ------------------------------------------------------------------
 # 5. RENDER SCENES (each scene → TTS + visual → segment file)
 # ------------------------------------------------------------------
 def render_scenes(state):
-    from . import editor, fx, media, tts
+    from . import editor, fx, media, tts          # ← tts was missing!
     scenes = [Scene(**s) for s in state["schema"]["scenes"]]
 
-    # Attach REAL article photos (match scene → article → og:image)
     for sc in scenes:
         if sc.type in ("article", "breaking") and not sc.image_url:
             target = (sc.headline or sc.breaking_headline or "").lower()
@@ -173,7 +189,8 @@ def render_scenes(state):
                 sc.image_url = media.og_image(hit["link"])
                 logger.info(f"🖼️ Real article photo attached: {hit['source']}")
 
-    segs = [editor.render_scene(sc, i) for i, sc in enumerate(scenes)]
+    take = tts.speak_full([sc.narration for sc in scenes], "full")
+    segs = editor.render_all(scenes, take)
     segs.append(fx.outro_video())
     return {"segments": segs}
 
@@ -257,21 +274,21 @@ CRITICAL VISUAL RULES:
 - Never use graphic, gory, or disturbing imagery descriptions."""
 
     resp = llm_create(prompt, RoundupSchema)
-    
-    # Convert RoundupScenes into standard 'breaking' scenes for the renderer
-    scenes = []
-    # Intro scene
-    scenes.append(Scene(type="breaking", breaking_headline="INDIA IN LAST 24 HOURS", 
-                        breaking_sub="TOP 8 HEADLINES", breaking_image_query="india news studio", 
-                        narration=resp.intro_narration).model_dump())
-    
-    # 8 Headline scenes
-    for i, item in enumerate(resp.scenes):
-        scenes.append(Scene(type="breaking", breaking_headline=item.headline, 
-                            breaking_sub=f"#{i+1}", breaking_image_query=item.image_query, 
+
+    items = resp.scenes or [
+        RoundupScene(headline=x["title"][:60].upper(), narration=x["title"],
+                     image_query="news") for x in state["articles"][:8]
+    ]
+
+    scenes = [Scene(type="breaking", breaking_headline="INDIA IN LAST 24 HOURS",
+                    breaking_sub="TOP 8 HEADLINES", breaking_image_query="india news studio",
+                    narration=resp.intro_narration or "आइए जानते हैं आज की बड़ी खबरें").model_dump()]
+    for i, item in enumerate(items):
+        scenes.append(Scene(type="breaking", breaking_headline=item.headline,
+                            breaking_sub=f"#{i+1}", breaking_image_query=item.image_query,
                             narration=item.narration).model_dump())
-                            
-    return {"schema": {"scenes": scenes, "caption": resp.caption, "hashtags": resp.hashtags}, 
+
+    return {"schema": {"scenes": scenes, "caption": resp.caption, "hashtags": resp.hashtags},
             "article": state["articles"][0]}
 
 # ------------------------------------------------------------------
