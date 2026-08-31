@@ -1,5 +1,67 @@
 [
  {
+  "_id": "6a95551e49d1519c3a623d95",
+  "userId": {
+   "_id": "6a6e34c9c4d0e314ea782eb2",
+   "name": "Mohammed Yakub",
+   "email": "mohammedyakubpasha880@gmail.com",
+   "image": "https://lh3.googleusercontent.com/a/ACg8ocIn4BxF5b3tPPSwoLDNvH2asjN-fX518EripQDIg_pmksri1w=s96-c"
+  },
+  "title": "",
+  "content": "\u2728 Instant mood booster!\n\nfree velocity\n\nShare with your friends! \ud83d\udd04\n\n#funny #comedy #reels #explore #fyp",
+  "mediaItems": [
+   {
+    "type": "video",
+    "url": "https://v1.pinimg.com/videos/mc/expMp4/fd/d1/22/fdd1225541ac7460570d50ba30a5bd84_t1.mp4",
+    "_id": "6a95551e49d1519c3a623d96"
+   }
+  ],
+  "platforms": [
+   {
+    "platform": "instagram",
+    "accountId": {
+     "_id": "6a6e3541df17280d939c7c5e",
+     "platform": "instagram",
+     "profileId": "6a6e34c9c4d0e314ea782f10",
+     "displayName": "studydying",
+     "isActive": true,
+     "profilePicture": "https://scontent-lhr11-1.cdninstagram.com/v/t51.82787-19/766052831_17977083864081308_4998037959198448065_n.jpg?stp=dst-jpg_s206x206_tt6&_nc_cat=106&ccb=7-5&_nc_sid=bf7eb4&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLnd3dy4yMzYuQzIifQ%3D%3D&_nc_ohc=JnnlIUI0XfAQ7kNvwHqsG6Q&_nc_oc=AdqaB-jjOhO-EPTMpWQMVu2PZ9APnNTGc24PSXknx2LJWJiXALGfVDm6sTCIfo-h2qM&_nc_zt=24&_nc_ht=scontent-lhr11-1.cdninstagram.com&edm=AP4hL3IEAAAA&_nc_gid=sxJxHvn-JbsVu6x_TE2S8Q&_nc_tpa=Q5bMBQIe7DAMn68Nl8eUcL3bi_HftSGsinzwNt1uDrifxHBHn_PE5PakILuk1ma2N_WhBNd-eCO76EBwZA&oh=00_AQJtHu25qUV7NwDSV2FOR_KvVZq7CLmWFbbFkAAHMYnxuQ&oe=6A9AD4BC",
+     "username": "studydyeing"
+    },
+    "profileId": "6a6e34c9c4d0e314ea782f10",
+    "customMedia": [],
+    "scheduledFor": "2026-08-31T16:30:00.000Z",
+    "status": "pending",
+    "publishAttempts": 0,
+    "contentHash": "f1c9be7d8c2920727380b7f7f58b5d37",
+    "_id": "6a95551e49d1519c3a623d97"
+   }
+  ],
+  "scheduledFor": "2026-08-31T16:30:00.000Z",
+  "timezone": "Asia/Kolkata",
+  "status": "scheduled",
+  "tags": [],
+  "hashtags": [],
+  "mentions": [],
+  "visibility": "public",
+  "crosspostingEnabled": true,
+  "metadata": {
+   "usageCounted": true
+  },
+  "publishAttempts": 0,
+  "recycling": {
+   "enabled": false,
+   "gapFreq": "month",
+   "recycleCount": 0,
+   "contentVariations": [],
+   "contentVariationIndex": 0
+  },
+  "createdAt": "2026-08-31T10:19:10.462Z",
+  "updatedAt": "2026-08-31T10:19:10.462Z",
+  "__v": 0,
+  "origin": "zernio"
+ },
+ {
   "_id": "6a93f9d88a5fe795c52a7a78",
   "userId": {
    "_id": "6a6e34c9c4d0e314ea782eb2",
@@ -724,72 +786,6 @@
   "updatedAt": "2026-08-19T06:09:42.293Z",
   "__v": 0,
   "publishingClaimedAt": "2026-08-19T01:30:23.276Z",
-  "origin": "zernio"
- },
- {
-  "_id": "6a82fdffad2105343992529c",
-  "userId": {
-   "_id": "6a6e34c9c4d0e314ea782eb2",
-   "name": "Mohammed Yakub",
-   "email": "mohammedyakubpasha880@gmail.com",
-   "image": "https://lh3.googleusercontent.com/a/ACg8ocIn4BxF5b3tPPSwoLDNvH2asjN-fX518EripQDIg_pmksri1w=s96-c"
-  },
-  "title": "",
-  "content": "\ud83d\udd25 This is pure gold!\n\nTry not to laugh\n\nFollow for more daily laughs! \u27a1\ufe0f\n\n#funny #comedy #reels #explore #fyp",
-  "mediaItems": [
-   {
-    "type": "video",
-    "url": "https://v1.pinimg.com/videos/mc/expMp4/ea/5d/80/ea5d801afe2084df0c6d5a36d6bec204_t1.mp4",
-    "_id": "6a82fdffad2105343992529d"
-   }
-  ],
-  "platforms": [
-   {
-    "platform": "instagram",
-    "accountId": {
-     "_id": "6a6e3541df17280d939c7c5e",
-     "platform": "instagram",
-     "profileId": "6a6e34c9c4d0e314ea782f10",
-     "displayName": "studydying",
-     "isActive": true,
-     "profilePicture": "https://scontent-lhr11-1.cdninstagram.com/v/t51.82787-19/766052831_17977083864081308_4998037959198448065_n.jpg?stp=dst-jpg_s206x206_tt6&_nc_cat=106&ccb=7-5&_nc_sid=bf7eb4&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLnd3dy4yMzYuQzIifQ%3D%3D&_nc_ohc=JnnlIUI0XfAQ7kNvwHqsG6Q&_nc_oc=AdqaB-jjOhO-EPTMpWQMVu2PZ9APnNTGc24PSXknx2LJWJiXALGfVDm6sTCIfo-h2qM&_nc_zt=24&_nc_ht=scontent-lhr11-1.cdninstagram.com&edm=AP4hL3IEAAAA&_nc_gid=sxJxHvn-JbsVu6x_TE2S8Q&_nc_tpa=Q5bMBQIe7DAMn68Nl8eUcL3bi_HftSGsinzwNt1uDrifxHBHn_PE5PakILuk1ma2N_WhBNd-eCO76EBwZA&oh=00_AQJtHu25qUV7NwDSV2FOR_KvVZq7CLmWFbbFkAAHMYnxuQ&oe=6A9AD4BC",
-     "username": "studydyeing"
-    },
-    "profileId": "6a6e34c9c4d0e314ea782f10",
-    "customMedia": [],
-    "scheduledFor": "2026-08-17T16:30:00.000Z",
-    "status": "published",
-    "publishAttempts": 1,
-    "contentHash": "beca583c96b668ba6978783d161b3cb4",
-    "_id": "6a82fdffad2105343992529e",
-    "platformPostId": "18199145818373365",
-    "platformPostUrl": "https://www.instagram.com/reel/DcJeZCAjAmK/",
-    "publishedAt": "2026-08-17T16:33:05.206Z"
-   }
-  ],
-  "scheduledFor": "2026-08-17T16:30:00.000Z",
-  "timezone": "Asia/Kolkata",
-  "status": "published",
-  "tags": [],
-  "hashtags": [],
-  "mentions": [],
-  "visibility": "public",
-  "crosspostingEnabled": true,
-  "metadata": {
-   "usageCounted": true
-  },
-  "publishAttempts": 0,
-  "recycling": {
-   "enabled": false,
-   "gapFreq": "month",
-   "recycleCount": 0,
-   "contentVariations": [],
-   "contentVariationIndex": 0
-  },
-  "createdAt": "2026-08-17T12:26:39.160Z",
-  "updatedAt": "2026-08-17T16:33:05.471Z",
-  "__v": 0,
-  "publishingClaimedAt": "2026-08-17T16:31:05.658Z",
   "origin": "zernio"
  }
 ]
