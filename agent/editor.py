@@ -123,15 +123,21 @@ def render_scene(scene, i, vo=None):
 
     if scene.type == "map":
         lat, lon, geo_country = (scraper.geocode(scene.pin) if scene.pin else (None, None, ""))
-        country = geo_country or scene.country or "India"
+        country = scene.country or "India"
+        if geo_country and fx.has_country(geo_country):
+            country = geo_country                      # pin's real country (US story → US map)
+        if not fx.has_country(country):
+            country = "India"                          # never a red-less map
         webm = fx.record_html(fx.map_html(country, scene.pin, scene.overlay_text,
                                           dur, lat=lat, lon=lon), dur, f"map{i}")
         _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "clip":
+        blurred = True
         clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur, scene.article_link)
         if not clip and scene.article_link:
             clip = scraper.mobile_record(scene.article_link, f"broll{i}", dur, scroll=True)
+            blurred = False
         if not clip:
             clip = scraper.commons_video(scene.clip_query or "news",
                                          os.path.join(settings.output_dir, f"cv_{i}.mp4"))
@@ -144,7 +150,7 @@ def render_scene(scene, i, vo=None):
                             "[0:v][1:v]overlay=0:0", "-c:v", "libx264",
                             "-pix_fmt", "yuv420p", "-an", tmp], check=True, capture_output=True)
             clip = tmp
-        _seg_mux(clip, vo, out, dur, blur=True)
+        _seg_mux(clip, vo, out, dur, blur=blurred)
 
     elif scene.type == "article":
         webm = None

@@ -153,3 +153,10 @@ def outro_video():
     subprocess.run([ioff.get_ffmpeg_exe(), "-y", "-i", webm, "-vf", "fps=30",
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", str(cache)], check=True, capture_output=True)
     return str(cache)
+
+def has_country(name):
+    if not name: return False
+    n = name.lower()
+    return any(n == (f["properties"].get("NAME") or "").lower()
+               or n in (f["properties"].get("NAME") or "").lower()
+               for f in _geojson()["features"])

@@ -172,6 +172,7 @@ CRITICAL TRUTH RULES (DO NOT INVENT):
 {real_quotes}
 2. stat_text MUST be exact numbers found in the article body (e.g., "3000+ DEAD").
 3. breaking_headline MUST be a verbatim substring of the RSS title. DO NOT MISSPELL WORDS.
+4. map "pin" MUST be a city/place name from the story (e.g. "Delhi", "Munger"), NEVER a person or random word.
 
 Build 6-9 scenes:
 1) map scene (country, pin location, overlay_text hook, narration = hook line)
@@ -196,23 +197,37 @@ Caption + 8 hashtags."""
         
     return {"schema": schema, "article": a, "_scraped": scraped}
 
+KNOWN_LOC = ["delhi","mumbai","bihar","noida","gurugram","jaipur","kanpur","patna","kolkata",
+             "chennai","bengaluru","hyderabad","ahmedabad","pune","lucknow","india","nepal",
+             "china","usa","us","america","russia","uk","pakistan","bangladesh","sri lanka",
+             "jammu","kashmir","manipur","assam","uttar pradesh","madhya pradesh","maharashtra",
+             "gujarat","rajasthan","punjab","tamil nadu","kerala","west bengal","odisha","munger"]
+
 def proofread_schema(state):
-    """P6.2 Proofreader: Fixes LLM typos by overwriting with ground-truth RSS text."""
     schema = state["schema"]
     a = state["article"]
     rss_title = a["title"].upper()
     scraped = state.get("_scraped", {})
     real_quotes = scraped.get("quotes", [])
+    head_low = rss_title.lower()
 
     for scene in schema.get("scenes", []):
-        # 1. Force Main Story Breaking Headline to be EXACTLY the RSS title (fixes "NODIA")
         if scene.get("type") == "breaking" and scene.get("breaking_sub", "").upper().startswith(a["source"].upper()):
-             scene["breaking_headline"] = rss_title[:60]
-
-        # 2. Force Quotes to be verbatim from scrape (fixes hallucinated quotes)
+            scene["breaking_headline"] = rss_title[:60]
         if scene.get("type") == "quote" and real_quotes:
             scene["quote_text"] = real_quotes[0]
+        # PIN SANITY: pin must be a place, never a person like "Mother"
+        if scene.get("type") == "map":
+            pin = (scene.get("pin") or "").lower()
+            if not any(k in pin for k in KNOWN_LOC):
+                fix = next((k for k in KNOWN_LOC if k in head_low), None)
+                scene["pin"] = fix.title() if fix else (scene.get("country") or "India")
 
+    # FORCE at least one clip scene so the reel never feels sparse
+    if not any(s.get("type") == "clip" for s in schema["scenes"]):
+        kw = " ".join([w for w in a["title"].split() if len(w) > 4][:3]) or "news"
+        schema["scenes"].insert(1, Scene(type="clip", clip_query=kw.lower(),
+                                         narration=a["title"]).model_dump())
     return {"schema": schema}
 
 # ------------------------------------------------------------------

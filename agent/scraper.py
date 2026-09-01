@@ -147,13 +147,15 @@ def mobile_record(url, name, dur, delays=None, scroll=False):
     """Like a human on their phone: mobile layout, ads hidden, focused on headline+photo."""
     from playwright.sync_api import sync_playwright
     RAW.mkdir(parents=True, exist_ok=True)
-    css = HIDE_JUNK_CSS + (KARAOKE_CSS if delays is not None else "")
+    css = "*:not(i){animation:none!important;transition:none!important}" + HIDE_JUNK_CSS + (KARAOKE_CSS if delays is not None else "")
     try:
         with sync_playwright() as pw:
             b = pw.chromium.launch()
-            ctx = b.new_context(viewport={"width": 420, "height": 900}, device_scale_factor=2,
+            ctx = b.new_context(viewport={"width": 540, "height": 960},# exact 9:16
+                                device_scale_factor=1,
                                 user_agent=MOBILE_UA, is_mobile=True, has_touch=True,
-                                record_video_dir=str(RAW), record_video_size={"width": 840, "height": 1800})
+                                record_video_dir=str(RAW),
+                                record_video_size={"width": 1080, "height": 1920})
             pg = ctx.new_page()
             pg.goto(url, wait_until="domcontentloaded", timeout=30000)
             pg.wait_for_timeout(2500)
