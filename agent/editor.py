@@ -39,6 +39,24 @@ def _placeholder_img(path: str, text: str):
            font=_font(72), fill=(235, 235, 235), anchor="mm")
     img.save(path)
 
+def _is_bad_capture(seg):
+    """P6.4 QC GATE (M010 detector): flat mid-gray = dead Playwright canvas.
+    A rejected capture triggers the designed fallback (replica card / commons)."""
+    try:
+        png = seg + "_qc.png"
+        subprocess.run([FF, "-y", "-i", seg, "-vf", "select=eq(n\\,12)", "-frames:v", "1", png],
+                       check=True, capture_output=True)
+        px = list(Image.open(png).convert("RGB").resize((54, 96)).getdata())
+        gray = sum(1 for r, g, b in px
+                   if abs(r - 128) < 14 and abs(g - 128) < 14 and abs(b - 128) < 14)
+        ratio = gray / len(px)
+        if ratio > 0.35:
+            logger.warning(f"🧪 QC: {os.path.basename(seg)} gray {ratio:.0%} → rejected, using fallback")
+            return True
+    except Exception as e:
+        logger.warning(f"QC check failed: {e}")
+    return False
+
 def _seg_mux(visual, vo, out, dur, blur=False):
     """Unified muxer. blur=True = blurred 9:16 fill for non-9:16 sources only.
     M010: lanczos on every upscale so 540×960 phone captures stay crisp at 1080×1920."""
@@ -139,8 +157,10 @@ def render_scene(scene, i, vo=None):
         blurred = True
         clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur, scene.article_link)
         if not clip and scene.article_link:
-            clip = scraper.mobile_record(scene.article_link, f"broll{i}", dur, scroll=True)
-            blurred = False                       # native 9:16 → lanczos upscale only
+            cand = scraper.mobile_record(scene.article_link, f"broll{i}", dur, scroll=True)
+            if cand and not _is_bad_capture(cand):      # QC gate on b-roll
+                clip = cand
+                blurred = False                          # native 9:16 → lanczos upscale only
         if not clip:
             clip = scraper.commons_video(scene.clip_query or "news",
                                          os.path.join(settings.output_dir, f"cv_{i}.mp4"))
@@ -160,8 +180,10 @@ def render_scene(scene, i, vo=None):
         if scene.article_link and vo:
             webm = scraper.mobile_record(scene.article_link, f"live{i}", dur,
                                          delays=[w[1] + 0.4 for w in vo["words"]])
+            if webm and _is_bad_capture(webm):           # QC gate on live capture
+                webm = None                              # → replica card fallback
         if webm:
-            _seg_mux(webm, vo, out, dur)          # native 9:16 → NO blur
+            _seg_mux(webm, vo, out, dur)                 # native 9:16 → NO blur
         else:
             words = (scene.headline or "").split()
             delays = ([w[1] + 0.3 for w in vo["words"]][:len(words)] if vo else [0.3 + j * 0.4 for j in range(len(words))])
@@ -208,6 +230,12 @@ def assemble(segments, final):
     subprocess.run([FF, "-y", "-f", "concat", "-safe", "0", "-i", listf,
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30",
                     "-c:a", "aac", "-ar", "44100", "-ac", "2", joined], check=True, capture_output=True)
+
+    # P6.4: broadcast-style fade in / fade out
+    probe = subprocess.run([FF, "-i", joined], capture_output=True, text=True)
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", probe.stderr)
+    T = (int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))) if m else 30.0
+
     music = os.path.join("assets", "music.mp3")
     cmd = [FF, "-y", "-i", joined]
     if os.path.exists(music):
@@ -216,6 +244,7 @@ def assemble(segments, final):
                 "-map", "0:v", "-map", "[a]"]
     else:
         cmd += ["-map", "0:v", "-map", "0:a"]
+    cmd += ["-vf", f"fade=t=in:st=0:d=0.4,fade=t=out:st={max(T - 0.6, 0):.2f}:d=0.6"]
     cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
             "-movflags", "+faststart", final]
     subprocess.run(cmd, check=True, capture_output=True)

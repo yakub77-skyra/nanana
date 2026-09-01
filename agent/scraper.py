@@ -116,7 +116,7 @@ def mobile_record(url, name, dur, delays=None, scroll=False):
             ctx = b.new_context(viewport={"width": 540, "height": 960},
                                 device_scale_factor=1,
                                 user_agent=MOBILE_UA, is_mobile=True, has_touch=True,
-                                record_video_dir=str(RAW))
+                                record_video_dir=str(RAW))   # record_video_size REMOVED (M010)
             pg = ctx.new_page()
             pg.goto(url, wait_until="domcontentloaded", timeout=30000)
             pg.wait_for_timeout(2500)
