@@ -40,7 +40,7 @@ def _placeholder_img(path: str, text: str):
     img.save(path)
 
 def _seg_mux(visual, vo, out, dur, blur=False):
-    """Single unified muxer — blur=True gives the human-style blurred 9:16 fill."""
+    """Unified muxer. blur=True = blurred 9:16 fill for non-9:16 sources only."""
     cmd = [FF, "-y", "-i", visual]
     cmd += ["-i", vo["mp3"]] if vo else ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
     if blur:
@@ -73,7 +73,7 @@ def _overlay_png(scene, path):
                stroke_width=max(2, size // 20), stroke_fill=(0, 0, 0, 255), anchor="mm")
     img.save(path)
 
-# ---------------- Single-Take Voice Logic ----------------
+# ---------------- single-take voice alignment ----------------
 def _norm(w): return re.sub(r"[^a-z0-9\u0900-\u097F]+", "", w.lower())
 
 def _slice(mp3, s, e, out):
@@ -139,7 +139,7 @@ def render_scene(scene, i, vo=None):
         clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur, scene.article_link)
         if not clip and scene.article_link:
             clip = scraper.mobile_record(scene.article_link, f"broll{i}", dur, scroll=True)
-            blurred = False
+            blurred = False                       # native 9:16 → no blur needed
         if not clip:
             clip = scraper.commons_video(scene.clip_query or "news",
                                          os.path.join(settings.output_dir, f"cv_{i}.mp4"))
@@ -160,7 +160,7 @@ def render_scene(scene, i, vo=None):
             webm = scraper.mobile_record(scene.article_link, f"live{i}", dur,
                                          delays=[w[1] + 0.4 for w in vo["words"]])
         if webm:
-            _seg_mux(webm, vo, out, dur, blur=True)
+            _seg_mux(webm, vo, out, dur)          # native 9:16 → NO blur (fix)
         else:
             words = (scene.headline or "").split()
             delays = ([w[1] + 0.3 for w in vo["words"]][:len(words)] if vo else [0.3 + j * 0.4 for j in range(len(words))])

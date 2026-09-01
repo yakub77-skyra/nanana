@@ -23,7 +23,7 @@ llm = instructor.from_openai(OpenAI(base_url=settings.llm_base_url, api_key=sett
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 # ------------------------------------------------------------------
-# FREE-MODEL FAILOVER LOGIC
+# FREE-MODEL FAILOVER
 # ------------------------------------------------------------------
 def _live_free_models():
     try:
@@ -44,7 +44,7 @@ def _model_chain():
     return chain or pref
 
 def llm_create(prompt, response_model=None):
-    last: Exception = RuntimeError("No free models available — check OpenRouter or your llm_fallbacks config")
+    last: Exception = RuntimeError("No free models available — check OpenRouter or llm_fallbacks")
     for model in _model_chain():
         try:
             if response_model:
@@ -56,7 +56,7 @@ def llm_create(prompt, response_model=None):
             return r.choices[0].message.content
         except Exception as e:
             last = e
-            logger.warning(f"⚡ {model} failed → trying next free model")
+            logger.warning(f"⚡ {model} failed → next free model")
     raise last
 
 FEEDS = {
@@ -72,7 +72,6 @@ def _load(p):
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}
 
 def _real_url(link):
-    """Google News redirect → REAL publisher URL (so og:image = the real news photo)."""
     if "news.google.com" not in link:
         return link
     if googlenewsdecoder:
@@ -127,7 +126,7 @@ def learn(state):
 # ------------------------------------------------------------------
 def select_story(state):
     hist = _load(HIST).get("recent", [])
-    ana  = _load(ANA)
+    ana = _load(ANA)
     winners = "\n".join(f"- {m.get('content','')[:80]} → {m.get('likeCount', m.get('playCount', 0))} plays"
                         for m in ana[:3]) or "none yet"
     listing = "\n".join(f"[{i}] {a['source']}: {a['title']}"
@@ -146,31 +145,43 @@ def select_story(state):
     return {"selected": resp.model_dump()}
 
 # ------------------------------------------------------------------
-# 4. EXTRACT SCHEMA (P6.2 Truth Layer)
+# TRUTH TOOLS (M003/M004/M007/M008 guards)
+# ------------------------------------------------------------------
+KNOWN_LOC = ["delhi","mumbai","bihar","noida","gurugram","jaipur","kanpur","patna","kolkata",
+             "chennai","bengaluru","hyderabad","ahmedabad","pune","lucknow","india","nepal",
+             "china","usa","us","america","russia","uk","pakistan","bangladesh","sri lanka",
+             "jammu","kashmir","manipur","assam","uttar pradesh","madhya pradesh","maharashtra",
+             "gujarat","rajasthan","punjab","tamil nadu","kerala","west bengal","odisha","munger"]
+
+def _cut(s, n):
+    """Word-safe truncation — never 'DELH' / 'STOL' / 'RESIDENC'."""
+    s = s or ""
+    if len(s) <= n: return s
+    cut = s[:n]
+    return (cut[:cut.rfind(" ")] or cut).strip()
+
+# ------------------------------------------------------------------
+# 4. EXTRACT SCHEMA
 # ------------------------------------------------------------------
 def extract_schema(state):
     from . import scraper
     a = state["articles"][state["selected"]["article_index"]]
     others = "\n".join(f"- {t['title']}" for t in state["articles"][:6] if t is not a)
-    
-    # P6.2: Scrape the real article body and quotes
     scraped = scraper.deep_scrape(a["link"])
     real_quotes = "\n".join(f'- "{q}"' for q in scraped.get("quotes", [])) or "No direct quotes found."
     real_date = scraped.get("date", "today")
-    
     lang_hint = ("narration lines MUST be in simple spoken Hindi, Devanagari script. "
                  if settings.narration_lang == "hi"
                  else "narration lines MUST be in crisp English. ")
-                 
     prompt = f"""You are the editor of @indiainlast24hr-style reel.
 STORY: {a['title']} ({a['source']}) - Published: {real_date}
 {lang_hint}All ON-SCREEN text stays ENGLISH CAPS.
 TOTAL narration across ALL scenes must stay under 80 seconds.
 
 CRITICAL TRUTH RULES (DO NOT INVENT):
-1. quote_text MUST be copied EXACTLY verbatim from this list of real quotes: 
+1. quote_text MUST be copied EXACTLY verbatim from this list of real quotes:
 {real_quotes}
-2. stat_text MUST be exact numbers found in the article body (e.g., "3000+ DEAD").
+2. stat_text MUST be exact numbers found in the article body (e.g. "3000+ DEAD").
 3. breaking_headline MUST be a verbatim substring of the RSS title. DO NOT MISSPELL WORDS.
 4. map "pin" MUST be a city/place name from the story (e.g. "Delhi", "Munger"), NEVER a person or random word.
 
@@ -180,41 +191,24 @@ Build 6-9 scenes:
 6+) 1-2 breaking scenes from OTHER headlines.
 Other headlines:\n{others}
 Caption + 8 hashtags."""
-
     resp = llm_create(prompt, StorySchema)
     schema = resp.model_dump()
-    
+
     if len(schema.get("scenes", [])) < 3:
         logger.warning("⚠️ Fallback schema built")
         t = a["title"]
         schema["scenes"] = [
-            Scene(type="map", country="India", pin=t.split()[0], overlay_text=t[:45].upper(), narration=t).model_dump(),
+            Scene(type="map", country="India", pin=_cut(t, 20), overlay_text=_cut(t, 44).upper(), narration=t).model_dump(),
             Scene(type="article", masthead=a["source"], headline=t, narration=t).model_dump(),
-            Scene(type="breaking", breaking_headline=t[:60].upper(), breaking_sub=a["source"], breaking_image_query="news", narration=t).model_dump(),
+            Scene(type="breaking", breaking_headline=_cut(t, 60).upper(), breaking_sub=a["source"],
+                  breaking_image_query="news", narration=t).model_dump(),
         ]
         schema.setdefault("caption", t)
         schema.setdefault("hashtags", ["india", "news"])
-        
     return {"schema": schema, "article": a, "_scraped": scraped}
 
-# ------------------------------------------------------------------
-# P6.3b TRUTH ENFORCEMENT (graph-independent — runs inside render_scenes)
-# ------------------------------------------------------------------
-KNOWN_LOC = ["delhi","mumbai","bihar","noida","gurugram","jaipur","kanpur","patna","kolkata",
-             "chennai","bengaluru","hyderabad","ahmedabad","pune","lucknow","india","nepal",
-             "china","usa","us","america","russia","uk","pakistan","bangladesh","sri lanka",
-             "jammu","kashmir","manipur","assam","uttar pradesh","madhya pradesh","maharashtra",
-             "gujarat","rajasthan","punjab","tamil nadu","kerala","west bengal","odisha","munger"]
-
-def _cut(s, n):
-    """Word-safe truncation — never produces 'DELH' or 'STOL' mid-word."""
-    s = s or ""
-    if len(s) <= n: return s
-    cut = s[:n]
-    return (cut[:cut.rfind(" ")] or cut).strip()
-
 def _enforce_truth(scenes, state):
-    """Truth Layer that ALWAYS runs regardless of graph wiring."""
+    """Truth Layer that ALWAYS runs, regardless of graph wiring."""
     a = state.get("article") or {}
     rss = a.get("title", "")
     src = (a.get("source") or "").upper()
@@ -222,38 +216,28 @@ def _enforce_truth(scenes, state):
     low = rss.lower()
 
     for sc in scenes:
-        # Pin must be a real place, never a person like "Mother" or "After"
         if sc.type == "map":
             pin = (sc.pin or "").lower()
             if not any(k in pin for k in KNOWN_LOC):
                 fix = next((k for k in KNOWN_LOC if k in low), None)
                 sc.pin = fix.title() if fix else (sc.country or "India")
             sc.overlay_text = (_cut(rss, 44).upper() or sc.overlay_text)
-
-        # Main story breaking headline = verbatim RSS (word-safe)
         if sc.type == "breaking" and src and (sc.breaking_sub or "").upper().startswith(src):
             sc.breaking_headline = _cut(rss, 60).upper()
-
-        # Quotes = real scraped quotes only
         if sc.type == "quote" and quotes and sc.quote_text not in quotes:
             sc.quote_text = quotes[0]
 
-    # Force at least one clip scene so the reel never feels sparse
     if not any(sc.type == "clip" for sc in scenes):
         kw = " ".join(w for w in rss.split() if len(w) > 4)[:40] or "news"
         scenes.insert(1, Scene(type="clip", clip_query=kw.lower(), narration=rss))
-
     return scenes
 
-# Also update proofread_schema to use word-safe cuts (belt + suspenders)
 def proofread_schema(state):
     schema = state["schema"]
     a = state["article"]
     rss_title = a["title"]
-    scraped = state.get("_scraped", {})
-    real_quotes = scraped.get("quotes", [])
+    real_quotes = (state.get("_scraped") or {}).get("quotes", [])
     head_low = rss_title.lower()
-
     for scene in schema.get("scenes", []):
         if scene.get("type") == "breaking" and scene.get("breaking_sub", "").upper().startswith(a["source"].upper()):
             scene["breaking_headline"] = _cut(rss_title, 60).upper()
@@ -264,11 +248,9 @@ def proofread_schema(state):
             if not any(k in pin for k in KNOWN_LOC):
                 fix = next((k for k in KNOWN_LOC if k in head_low), None)
                 scene["pin"] = fix.title() if fix else (scene.get("country") or "India")
-
     if not any(s.get("type") == "clip" for s in schema["scenes"]):
         kw = " ".join([w for w in rss_title.split() if len(w) > 4][:3]) or "news"
-        schema["scenes"].insert(1, Scene(type="clip", clip_query=kw.lower(),
-                                         narration=rss_title).model_dump())
+        schema["scenes"].insert(1, Scene(type="clip", clip_query=kw.lower(), narration=rss_title).model_dump())
     return {"schema": schema}
 
 # ------------------------------------------------------------------
@@ -277,11 +259,8 @@ def proofread_schema(state):
 def render_scenes(state):
     from . import editor, fx, media, tts
     scenes = [Scene(**s) for s in state["schema"]["scenes"]]
-    
-    # P6.3b: Enforce truth HERE (graph-independent safety net)
     scenes = _enforce_truth(scenes, state)
-    
-    # Attach real photos and article links
+
     for sc in scenes:
         if sc.type in ("article", "breaking") and not sc.image_url:
             target = (sc.headline or sc.breaking_headline or "").lower()
@@ -290,22 +269,19 @@ def render_scenes(state):
             if hit:
                 sc.image_url = media.og_image(hit["link"])
                 sc.article_link = hit["link"]
-                
-    # main story link for clip/article scenes
+
     main_link = state.get("article", {}).get("link")
     for sc in scenes:
         if sc.type in ("clip", "article", "quote") and not sc.article_link:
             sc.article_link = main_link
 
-    # ONE human-like voice take for the whole reel
     take = tts.speak_full([sc.narration for sc in scenes], "full")
     segs = editor.render_all(scenes, take)
     segs.append(fx.outro_video())
-    
     return {"segments": segs}
 
 # ------------------------------------------------------------------
-# 6. ASSEMBLE
+# 6. ASSEMBLE / 7. PUBLISH
 # ------------------------------------------------------------------
 def assemble(state):
     from . import editor
@@ -313,9 +289,6 @@ def assemble(state):
     editor.assemble(state["segments"], final)
     return {"final": final}
 
-# ------------------------------------------------------------------
-# 7. PUBLISH
-# ------------------------------------------------------------------
 def publish(state):
     from . import publisher
     publisher.publish(state["final"],
@@ -324,7 +297,7 @@ def publish(state):
     return {}
 
 # ------------------------------------------------------------------
-# legacy TTS (unused, kept for reference)
+# legacy TTS (reference only)
 # ------------------------------------------------------------------
 async def _tts(text: str, mp3: str):
     timings = []
@@ -361,13 +334,13 @@ def extract_roundup(state):
     lang_hint = "simple spoken Hindi" if settings.narration_lang == "hi" else "crisp English"
     prompt = f"""You are the editor of @indiainlast24hr. Create a fast-paced "Top 8 Headlines" reel.
 Intro: A catchy hook in {lang_hint}.
-Scenes: Pick the 8 most important/viral DISTINCT stories from the feed below. 
+Scenes: Pick the 8 most important/viral DISTINCT stories from the feed below.
 Each scene needs a short ENGLISH CAPS headline, a 1-sentence {lang_hint} narration, and an image query.
 Feed:\n{listing}
 Also write caption + 8 hashtags.
 
 CRITICAL VISUAL RULES:
-- image_query must be GENERIC searchable footage keywords (e.g. "stock market crash", "cricket stadium crowd"), NEVER proper nouns or specific names.
+- image_query must be GENERIC searchable footage keywords (e.g. "stock market crash", "cricket stadium crowd"), NEVER proper nouns.
 - Never use graphic, gory, or disturbing imagery descriptions."""
     resp = llm_create(prompt, RoundupSchema)
     items = resp.scenes or [
@@ -404,7 +377,7 @@ def reply_comments(state):
             c_user = c.get("user", {}).get("name", "User")
             if c.get("isRead") or c.get("isOwner") or replied >= 2: continue
             reply_resp = llm_create(
-                f"Write a 1-sentence friendly reply to this Instagram comment from {c_user}: '{c_text}'. Ask a question back to boost engagement. Reply ONLY with the text.",
+                f"Write a 1-sentence friendly reply to this Instagram comment from {c_user}: '{c_text}'. Ask a question back. Reply ONLY with the text.",
                 CommentReply)
             reply_text = reply_resp.text if hasattr(reply_resp, 'text') else str(reply_resp)
             httpx.post(f"{ZERNIO}/comments/{c_id}/reply",

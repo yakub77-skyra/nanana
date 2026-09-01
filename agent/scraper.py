@@ -19,7 +19,7 @@ def get_html(url):
     return _html_cache[url]
 
 def deep_scrape(url):
-    """REAL body text, real quotes, real date from the article (P6.2 will use these)."""
+    """REAL body text, real quotes, real date from the article."""
     raw = get_html(url)
     if not raw: return {"body": "", "quotes": [], "date": "", "author": ""}
     try:
@@ -61,7 +61,7 @@ def clip_from_urls(urls, path, dur=8):
     return None
 
 def page_screenshot(url, path):
-    """REAL screenshot of the actual article page (masthead + photo + headline)."""
+    """REAL screenshot of the actual article page."""
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
@@ -79,46 +79,8 @@ def page_screenshot(url, path):
         logger.warning(f"page screenshot failed: {e}")
         return None
 
-def live_karaoke(url, delays, name, dur):
-    """Screen-record the REAL article page with the red highlight crawling its REAL headline."""
-    from playwright.sync_api import sync_playwright
-    RAW.mkdir(parents=True, exist_ok=True)
-    css = (".w{position:relative;display:inline-block;margin-right:.25ch}"
-           ".w i{position:absolute;left:-2px;right:-.35ch;top:6%;height:88%;background:#d40000;opacity:.92;"
-           "transform:scaleX(0);transform-origin:left;animation:hl .16s forwards}"
-           ".w b{position:relative}@keyframes hl{to{transform:scaleX(1)}}")
-    js = r"""(delays) => {
-        const h = document.querySelector('h1') || document.querySelector('[class*=headline]');
-        if (!h) return false;
-        const words = h.textContent.trim().split(/\s+/);
-        h.innerHTML = words.map((w,i) =>
-            `<span class="w"><i style="animation-delay:${(delays[i]||i*0.35).toFixed(2)}s"></i><b>${w.replace(/[&<>]/g,'')}</b></span>`
-        ).join(' ');
-        h.scrollIntoView({block:'center'});
-        return true;
-    }"""
-    try:
-        with sync_playwright() as pw:
-            b = pw.chromium.launch()
-            ctx = b.new_context(viewport={"width": 1080, "height": 1920},
-                                record_video_dir=str(RAW), record_video_size={"width": 1080, "height": 1920})
-            pg = ctx.new_page()
-            pg.goto(url, wait_until="domcontentloaded", timeout=30000)
-            pg.wait_for_timeout(2000)
-            pg.add_style_tag(content=css)
-            ok = pg.evaluate(js, delays)
-            if not ok:
-                pg.close(); ctx.close(); b.close()
-                return None
-            pg.wait_for_timeout(int(dur * 1000))
-            v = pg.video; pg.close(); out = v.path(); ctx.close(); b.close()
-        return out
-    except Exception as e:
-        logger.warning(f"live karaoke failed: {e}")
-        return None
-
 def geocode(location):
-    """lat, lon, AND the pin's real country (fixes US-pin-on-India-map)."""
+    """lat, lon, AND the pin's real country."""
     if not location: return None, None, ""
     try:
         r = httpx.get("https://nominatim.openstreetmap.org/search",
@@ -144,14 +106,14 @@ KARAOKE_CSS = (".w{position:relative;display:inline-block;margin-right:.25ch}"
                ".w b{position:relative}@keyframes hl{to{transform:scaleX(1)}}")
 
 def mobile_record(url, name, dur, delays=None, scroll=False):
-    """Like a human on their phone: mobile layout, ads hidden, focused on headline+photo."""
+    """Like a human on their phone: mobile layout, ads hidden, native 9:16 recording."""
     from playwright.sync_api import sync_playwright
     RAW.mkdir(parents=True, exist_ok=True)
     css = "*:not(i){animation:none!important;transition:none!important}" + HIDE_JUNK_CSS + (KARAOKE_CSS if delays is not None else "")
     try:
         with sync_playwright() as pw:
             b = pw.chromium.launch()
-            ctx = b.new_context(viewport={"width": 540, "height": 960},# exact 9:16
+            ctx = b.new_context(viewport={"width": 540, "height": 960},   # exact 9:16
                                 device_scale_factor=1,
                                 user_agent=MOBILE_UA, is_mobile=True, has_touch=True,
                                 record_video_dir=str(RAW),
@@ -162,7 +124,7 @@ def mobile_record(url, name, dur, delays=None, scroll=False):
             pg.add_style_tag(content=css)
             pg.wait_for_timeout(3000)
             txt_len = pg.evaluate("() => ((document.body && document.body.innerText) || '').length")
-            if txt_len < 200:                      # blank/blocked page → fallback to replica card
+            if txt_len < 200:                      # blank/blocked page → fallback
                 pg.close(); ctx.close(); b.close()
                 return None
             if delays is not None:
@@ -174,7 +136,7 @@ def mobile_record(url, name, dur, delays=None, scroll=False):
                 }""", delays)
             pg.evaluate("() => { const h=document.querySelector('h1'); if(h) h.scrollIntoView({block:'start'}); }")
             pg.wait_for_timeout(400)
-            if scroll:                                   # human "browsing" b-roll
+            if scroll:                             # human "browsing" b-roll
                 for _ in range(int(dur * 2)):
                     pg.mouse.wheel(0, 260); pg.wait_for_timeout(500)
             else:
@@ -207,7 +169,7 @@ def main_image_url(url):
         return None
 
 def commons_video(query, path):
-    """Real CC footage from Wikimedia Commons (floods, traffic, parliament…)."""
+    """Real CC footage from Wikimedia Commons."""
     try:
         r = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=20, params={
             "action": "query", "format": "json", "generator": "search",
