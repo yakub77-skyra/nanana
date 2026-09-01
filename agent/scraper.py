@@ -3,6 +3,7 @@ import httpx, trafilatura
 from pathlib import Path
 from loguru import logger
 from .config import settings
+from . import media
 
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"}
 RAW = Path(settings.output_dir).resolve() / "raw"
