@@ -68,7 +68,7 @@ def archive_clip(query, path):
             if f and media.download(f"https://archive.org/download/{d['identifier']}/{f['name']}", path, 240):
                 return path
     except Exception as e:
-        logger.warning(f"archive failed → next source ({e}")
+        logger.warning(f"archive failed → next source ({e})")
         return None
 
 def get_image(query, path):

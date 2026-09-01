@@ -15,6 +15,7 @@ def download(url, path, timeout=120):
     return None
 
 def og_image(url):
+    """Real publisher photo — with guards against logos/placeholders."""
     if not url or "news.google.com" in url:
         return None
     try:
@@ -41,19 +42,4 @@ def commons_image(query, path):
             if download(ii.get("thumburl") or ii.get("url"), path): return path
     except Exception as e:
         logger.warning(f"commons failed: {e}")
-    return None
-
-def archive_clip(query, path):
-    """REAL footage from Internet Archive — keyless, never bot-blocked."""
-    try:
-        r = httpx.get("https://archive.org/advancedsearch.php", timeout=20, params={
-            "q": f"{query} AND mediatype:(movies)", "fl[]": "identifier",
-            "rows": 3, "page": 1, "output": "json"}).json()
-        for d in (r.get("response") or {}).get("docs") or []:
-            m = httpx.get(f"https://archive.org/metadata/{d['identifier']}", timeout=20).json()
-            f = next((x for x in m.get("files", []) if x["name"].lower().endswith(".mp4")), None)
-            if f and download(f"https://archive.org/download/{d['identifier']}/{f['name']}", path, 240):
-                return path
-    except Exception as e:
-        logger.warning(f"archive failed: {e}")
     return None

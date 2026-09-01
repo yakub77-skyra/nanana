@@ -1,29 +1,30 @@
 import sys
-from agent.graph import build
 from loguru import logger
 
+from agent.version import BUILD
+from agent.graph import build
+
 if __name__ == "__main__":
-    logger.info("🚀 Autonomous News Agent starting — fetching TODAY's live news…")
-    
+    logger.info(f"🧬 BUILD {BUILD} — Autonomous News Agent starting…")
+
     try:
-        # Run the LangGraph pipeline
         result = build().invoke({})
-        
-        # Safely check if the final video was generated
-        if result.get("final"):
-            logger.success(f"✅ Done! Final reel saved at: {result['final']}")
-            
-            # Optional: Print the format it chose today
-            fmt = result.get("reel_format", "unknown")
-            logger.info(f"📺 Today's format: {fmt.upper()}")
+
+        final = result.get("final")
+        fmt = result.get("reel_format", "unknown")
+
+        if final:
+            logger.success(f"✅ Done! Final reel: {final}")
+            logger.info(f"📺 Format: {fmt.upper()} | 🧬 BUILD {BUILD}")
         else:
-            logger.warning("⚠️ Agent finished, but no final video was generated. Check logs above.")
-            
+            logger.warning(f"⚠️ Agent finished without a final video (BUILD {BUILD}). Check logs above.")
+            sys.exit(1)
+
     except KeyboardInterrupt:
-        logger.warning("🛑 Agent stopped by user.")
+        logger.warning("🛑 Stopped by user.")
         sys.exit(0)
-        
+
     except Exception as e:
-        # Catch any unexpected crashes so GitHub Actions knows it failed
-        logger.error(f"❌ Agent crashed: {e}")
+        # Non-zero exit → GitHub Actions shows ❌ so we KNOW it failed
+        logger.error(f"❌ Agent crashed (BUILD {BUILD}): {type(e).__name__}: {e}")
         sys.exit(1)
