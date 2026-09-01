@@ -17,6 +17,7 @@ dependencies = [
     "pillow>=10.0",
     "yt-dlp>=2024.8.6",
     "googlenewsdecoder>=0.1.7",
+    "trafilatura>=1.9",
 
 ]
 

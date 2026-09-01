@@ -113,18 +113,23 @@ def render_all(scenes, take):
 
 # ---------------- per-scene renderer ----------------
 def render_scene(scene, i, vo=None):
+    from . import scraper
     if vo is None:
         vo = tts.speak(scene.narration, f"s{i}") if scene.narration else None
     dur = vo["dur"] if vo else 4.0
     out = os.path.join(settings.output_dir, f"seg_{i}.mp4")
-    
+
     if scene.type == "map":
+        from . import scraper
+        lat, lon = None, None
+        if scene.pin:
+            lat, lon = scraper.geocode(scene.pin)
         webm = fx.record_html(fx.map_html(scene.country or "India", scene.pin,
-                                          scene.overlay_text, dur), dur, f"map{i}")
+                                          scene.overlay_text, dur, lat=lat, lon=lon), dur, f"map{i}")
         _seg_mux(webm, vo, out, dur)
-        
+
     elif scene.type == "clip":
-        clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur)
+        clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur, scene.article_link)
         if not clip: raise RuntimeError("no REAL footage found → scene skipped")
         if scene.red_circle or scene.stat_text:
             ov = os.path.join(settings.output_dir, f"ov_{i}.png")
@@ -135,45 +140,47 @@ def render_scene(scene, i, vo=None):
                             "-pix_fmt", "yuv420p", "-an", tmp], check=True, capture_output=True)
             clip = tmp
         _seg_mux(clip, vo, out, dur)
-        
+
     elif scene.type == "article":
-        words = (scene.headline or "").split()
-        delays = ([w[1] + 0.3 for w in vo["words"]][:len(words)] if vo else [0.3 + j * 0.4 for j in range(len(words))])
-        while len(delays) < len(words):
-            delays.append((delays[-1] + 0.4) if delays else 0.3)
-        sp = "".join(f'<span class="w"><i style="animation-delay:{d:.2f}s"></i><b>{_html.escape(w)}</b></span>'
-                     for w, d in zip(words, delays))
-        page = (CARD.replace("__HANDLE__", settings.ig_handle)
-                    .replace("__MASTHEAD__", (scene.masthead or "THE TIMES OF INDIA").upper())
-                    .replace("__HEADLINE__", sp)
-                    .replace("__META__", scene.masthead or "")
-                    .replace("__BIG__", scene.stat_text or ""))
-        _seg_mux(fx.record_html(page, dur, f"art{i}"), vo, out, dur)
-        
+        webm = None
+        if scene.article_link and vo:                       # REAL page + REAL highlight
+            webm = scraper.live_karaoke(scene.article_link, [w[1] + 0.4 for w in vo["words"]],
+                                        f"live{i}", dur)
+        if webm:
+            _seg_mux(webm, vo, out, dur)
+        else:                                               # fallback: replica card
+            words = (scene.headline or "").split()
+            delays = ([w[1] + 0.3 for w in vo["words"]][:len(words)] if vo else [0.3 + j * 0.4 for j in range(len(words))])
+            while len(delays) < len(words):
+                delays.append((delays[-1] + 0.4) if delays else 0.3)
+            sp = "".join(f'<span class="w"><i style="animation-delay:{d:.2f}s"></i><b>{_html.escape(w)}</b></span>'
+                         for w, d in zip(words, delays))
+            page = (CARD.replace("__HANDLE__", settings.ig_handle)
+                        .replace("__MASTHEAD__", (scene.masthead or "THE TIMES OF INDIA").upper())
+                        .replace("__HEADLINE__", sp)
+                        .replace("__META__", scene.masthead or "")
+                        .replace("__BIG__", scene.stat_text or ""))
+            _seg_mux(fx.record_html(page, dur, f"art{i}"), vo, out, dur)
+
     elif scene.type == "quote":
         _seg_mux(fx.record_html(fx.quote_html(scene.quote_text or "", scene.person or "",
                                               vo["words"] if vo else [], dur), dur, f"q{i}"), vo, out, dur)
-                                              
+
     elif scene.type == "breaking":
         img = os.path.join(settings.output_dir, f"br_{i}.jpg")
-        ok = None
-        # 1. Try REAL news photo attached by nodes.py
-        if scene.image_url:
-            ok = media.download(scene.image_url, img)
-        # 2. Fallback to search (Stock -> AI)
+        ok = media.download(scene.image_url, img) if scene.image_url else None
+        if not ok and scene.article_link:                   # REAL page screenshot fallback
+            ok = scraper.page_screenshot(scene.article_link, img)
         if not ok:
-            try: ok = clips.get_image(scene.breaking_image_query or scene.breaking_headline, img)
-            except Exception: ok = None
-        # 3. Final fallback
-        if not ok: _placeholder_img(img, scene.breaking_headline or "")
-        
+            ok = clips.get_image(scene.breaking_image_query or scene.breaking_headline, img)
+        if not ok:
+            _placeholder_img(img, scene.breaking_headline or "")
         _seg_mux(fx.record_html(fx.breaking_html(scene.breaking_headline or "",
                                                  scene.breaking_sub, img, dur),
                                 dur, f"b{i}"), vo, out, dur)
-                                
+
     logger.success(f"🎞️ Scene {i} ({scene.type}) rendered")
     return out
-
 # ---------------- final assembly ----------------
 def assemble(segments, final):
     # SAFETY NET: Fail loudly if only the outro exists (no more silent outro-only reels)

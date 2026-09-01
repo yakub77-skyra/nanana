@@ -35,28 +35,39 @@ def _geojson():
         _geojson.cache = httpx.get(url, timeout=60).json()
     return _geojson.cache
 
-def map_html(country, pin, overlay_text, dur):
+def map_html(country, pin, overlay_text, dur, lat=None, lon=None):
     gj = _geojson()["features"]
     name = lambda f: (f["properties"].get("NAME") or "").lower()
     target = next((f for f in gj if name(f) == country.lower()), None)
-    if target is None: target = next(f for f in gj if country.lower() in name(f))
+    if target is None: target = next((f for f in gj if country.lower() in name(f)), gj[0])
+    
     def rings(f):
         g = f["geometry"]; polys = g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]]
         return [p[0] for p in polys]
+        
     allr = [r for f in gj for r in rings(f)]
     xs = [c[0] for r in allr for c in r[::3]]; ys = [c[1] for r in allr for c in r[::3]]
     tr = [r for r in rings(target)]
     txs = [c[0] for r in tr for c in r]; tys = [c[1] for r in tr for c in r]
-    cx, cy = (min(txs)+max(txs))/2, (tys[0]+max(tys))/2
-    w = max(max(txs)-min(txs), 20); pad = w * 2.2
+    
+    # P6.2: Center on exact city coordinates if available, else country center
+    if lat is not None and lon is not None:
+        cx, cy = lon, lat
+    else:
+        cx, cy = (min(txs)+max(txs))/2, (min(tys)+max(tys))/2 
+        
+    w = max(max(txs)-min(txs), 20); pad = w * 1.5  # tighter zoom for cities
     X = lambda lon: (lon - xs[0]) * 6; Y = lambda lat: (ys[1] - lat) * 6
     vx, vy, vw, vh = X(cx-pad/2), Y(cy+pad/2), X(cx+pad/2)-X(cx-pad/2), Y(cy-pad/2)-Y(cy+pad/2)
+    
     def path(f, cls):
         d = "".join("M" + "L".join(f"{X(c[0]):.0f} {Y(c[1]):.0f}" for c in r[::2]) + "Z" for r in rings(f))
         return f'<path class="{cls}" d="{d}"/>'
+        
     land = "".join(path(f, "l") for f in gj if f is not target)
     tgt = path(target, "t")
     pin_html = f'<div id="pin"><div class="rip"></div><div class="rip r2"></div><div class="dot"></div><div class="lbl">{html.escape(pin or country)}</div></div>' if pin or overlay_text else ""
+    
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial}}
 #wrap{{position:absolute;inset:0;animation:zm {dur:.1f}s ease-in forwards;transform-origin:50% 50%}}

@@ -15,13 +15,12 @@ try:
 except Exception:
     googlenewsdecoder = None
 
-
 from .config import settings
 from .schemas import Article, SelectedStory, StorySchema, Scene, RoundupSchema, RoundupScene, CommentReply
 
 llm = instructor.from_openai(OpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key))
 
-UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 # ------------------------------------------------------------------
 # FREE-MODEL FAILOVER LOGIC
@@ -147,44 +146,74 @@ def select_story(state):
     return {"selected": resp.model_dump()}
 
 # ------------------------------------------------------------------
-# 4. EXTRACT SCHEMA
+# 4. EXTRACT SCHEMA (P6.2 Truth Layer)
 # ------------------------------------------------------------------
 def extract_schema(state):
+    from . import scraper
     a = state["articles"][state["selected"]["article_index"]]
     others = "\n".join(f"- {t['title']}" for t in state["articles"][:6] if t is not a)
+    
+    # P6.2: Scrape the real article body and quotes
+    scraped = scraper.deep_scrape(a["link"])
+    real_quotes = "\n".join(f'- "{q}"' for q in scraped.get("quotes", [])) or "No direct quotes found."
+    real_date = scraped.get("date", "today")
+    
     lang_hint = ("narration lines MUST be in simple spoken Hindi, Devanagari script. "
                  if settings.narration_lang == "hi"
                  else "narration lines MUST be in crisp English. ")
+                 
     prompt = f"""You are the editor of @indiainlast24hr-style reel.
-STORY: {a['title']} ({a['source']})
-{lang_hint}All ON-SCREEN text (overlay_text, stat_text, big_text, breaking_headline) stays ENGLISH CAPS.
-TOTAL narration across ALL scenes must stay under 80 seconds (≈180 Hindi words or ≈140 English words) so the reel stays under 90s.
-Build 6-9 scenes in order:
-1) map scene (country, pin location, overlay_text hook, narration = hook line)
-2-5) mix of clip (clip_query for footage search, stat_text like '3000+ MISSING', red_circle when dramatic),
-     article (masthead+headline = source headline, narration = headline verbatim),
-     quote (quote_text+person)
-6+) 1-2 breaking scenes from OTHER headlines below (breaking_headline, breaking_sub, breaking_image_query; narration = headline)
-Other headlines today:\n{others}
-Also write caption + 8 hashtags.
+STORY: {a['title']} ({a['source']}) - Published: {real_date}
+{lang_hint}All ON-SCREEN text stays ENGLISH CAPS.
+TOTAL narration across ALL scenes must stay under 80 seconds.
 
-CRITICAL VISUAL RULES:
-- clip_query and breaking_image_query must be GENERIC searchable footage keywords (e.g. "flood river rescue boat", "parliament building"), NEVER proper nouns or specific names.
-- Never use graphic, gory, or disturbing imagery descriptions."""
+CRITICAL TRUTH RULES (DO NOT INVENT):
+1. quote_text MUST be copied EXACTLY verbatim from this list of real quotes: 
+{real_quotes}
+2. stat_text MUST be exact numbers found in the article body (e.g., "3000+ DEAD").
+3. breaking_headline MUST be a verbatim substring of the RSS title. DO NOT MISSPELL WORDS.
+
+Build 6-9 scenes:
+1) map scene (country, pin location, overlay_text hook, narration = hook line)
+2-5) mix of clip, article (masthead+headline), quote (quote_text+person)
+6+) 1-2 breaking scenes from OTHER headlines.
+Other headlines:\n{others}
+Caption + 8 hashtags."""
+
     resp = llm_create(prompt, StorySchema)
     schema = resp.model_dump()
+    
     if len(schema.get("scenes", [])) < 3:
-        logger.warning("⚠️ Model returned too few scenes → fallback schema built")
+        logger.warning("⚠️ Fallback schema built")
         t = a["title"]
         schema["scenes"] = [
-            Scene(type="map", country="India", overlay_text=t[:45].upper(), narration=t).model_dump(),
+            Scene(type="map", country="India", pin=t.split()[0], overlay_text=t[:45].upper(), narration=t).model_dump(),
             Scene(type="article", masthead=a["source"], headline=t, narration=t).model_dump(),
-            Scene(type="breaking", breaking_headline=t[:60].upper(), breaking_sub=a["source"],
-                  breaking_image_query="news", narration=t).model_dump(),
+            Scene(type="breaking", breaking_headline=t[:60].upper(), breaking_sub=a["source"], breaking_image_query="news", narration=t).model_dump(),
         ]
         schema.setdefault("caption", t)
-        schema.setdefault("hashtags", ["india", "news", "breaking"])
-    return {"schema": schema, "article": a}
+        schema.setdefault("hashtags", ["india", "news"])
+        
+    return {"schema": schema, "article": a, "_scraped": scraped}
+
+def proofread_schema(state):
+    """P6.2 Proofreader: Fixes LLM typos by overwriting with ground-truth RSS text."""
+    schema = state["schema"]
+    a = state["article"]
+    rss_title = a["title"].upper()
+    scraped = state.get("_scraped", {})
+    real_quotes = scraped.get("quotes", [])
+
+    for scene in schema.get("scenes", []):
+        # 1. Force Main Story Breaking Headline to be EXACTLY the RSS title (fixes "NODIA")
+        if scene.get("type") == "breaking" and scene.get("breaking_sub", "").upper().startswith(a["source"].upper()):
+             scene["breaking_headline"] = rss_title[:60]
+
+        # 2. Force Quotes to be verbatim from scrape (fixes hallucinated quotes)
+        if scene.get("type") == "quote" and real_quotes:
+            scene["quote_text"] = real_quotes[0]
+
+    return {"schema": schema}
 
 # ------------------------------------------------------------------
 # 5. RENDER SCENES
@@ -192,6 +221,8 @@ CRITICAL VISUAL RULES:
 def render_scenes(state):
     from . import editor, fx, media, tts
     scenes = [Scene(**s) for s in state["schema"]["scenes"]]
+    
+    # Attach real photos and article links
     for sc in scenes:
         if sc.type in ("article", "breaking") and not sc.image_url:
             target = (sc.headline or sc.breaking_headline or "").lower()
@@ -199,11 +230,19 @@ def render_scenes(state):
                         if sum(w in a["title"].lower() for w in target.split()[:5]) >= 2), None)
             if hit:
                 sc.image_url = media.og_image(hit["link"])
-                if sc.image_url:
-                    logger.info(f"🖼️ REAL article photo attached: {hit['source']}")
+                sc.article_link = hit["link"]
+                
+    # main story link for clip/article scenes
+    main_link = state.get("article", {}).get("link")
+    for sc in scenes:
+        if sc.type in ("clip", "article", "quote") and not sc.article_link:
+            sc.article_link = main_link
+
+    # ONE human-like voice take for the whole reel
     take = tts.speak_full([sc.narration for sc in scenes], "full")
     segs = editor.render_all(scenes, take)
     segs.append(fx.outro_video())
+    
     return {"segments": segs}
 
 # ------------------------------------------------------------------
