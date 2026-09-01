@@ -117,15 +117,98 @@ def live_karaoke(url, delays, name, dur):
         return None
 
 def geocode(location):
-    """Converts a city name to exact lat/lon for the map pin."""
-    if not location: return None, None
+    """lat, lon, AND the pin's real country (fixes US-pin-on-India-map)."""
+    if not location: return None, None, ""
     try:
         r = httpx.get("https://nominatim.openstreetmap.org/search",
                       params={"q": location, "format": "json", "limit": 1},
-                      headers={"User-Agent": "NewsReelAgent/1.0 (contact@example.com)"}, 
-                      timeout=10).json()
-        if r: 
-            return float(r[0]["lat"]), float(r[0]["lon"])
+                      headers={"User-Agent": "NewsReelAgent/1.0"}, timeout=10).json()
+        if r:
+            return float(r[0]["lat"]), float(r[0]["lon"]), (r[0].get("address") or {}).get("country", "")
     except Exception as e:
-        logger.warning(f"geocode failed for {location}: {e}")
-    return None, None
+        logger.warning(f"geocode failed: {e}")
+    return None, None, ""
+
+# ---------------- P6.3 HUMAN EDITOR TOOLKIT ----------------
+MOBILE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 "
+             "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
+HIDE_JUNK_CSS = """aside,iframe,nav,footer,[class*="advert"],[id*="advert"],[class*="advertisement"],
+[class*="sidebar"],[class*="cookie"],[id*="cookie"],[class*="newsletter"],[class*="promo"],
+[class*="subscribe"],[class*="share"]{display:none!important}
+#handle{top:auto!important;bottom:70px!important}"""
+
+KARAOKE_CSS = (".w{position:relative;display:inline-block;margin-right:.25ch}"
+               ".w i{position:absolute;left:-2px;right:-.35ch;top:6%;height:88%;background:#d40000;opacity:.92;"
+               "transform:scaleX(0);transform-origin:left;animation:hl .16s forwards}"
+               ".w b{position:relative}@keyframes hl{to{transform:scaleX(1)}}")
+
+def mobile_record(url, name, dur, delays=None, scroll=False):
+    """Like a human on their phone: mobile layout, ads hidden, focused on headline+photo."""
+    from playwright.sync_api import sync_playwright
+    RAW.mkdir(parents=True, exist_ok=True)
+    css = HIDE_JUNK_CSS + (KARAOKE_CSS if delays is not None else "")
+    try:
+        with sync_playwright() as pw:
+            b = pw.chromium.launch()
+            ctx = b.new_context(viewport={"width": 420, "height": 900}, device_scale_factor=2,
+                                user_agent=MOBILE_UA, is_mobile=True, has_touch=True,
+                                record_video_dir=str(RAW), record_video_size={"width": 840, "height": 1800})
+            pg = ctx.new_page()
+            pg.goto(url, wait_until="domcontentloaded", timeout=30000)
+            pg.wait_for_timeout(2500)
+            pg.add_style_tag(content=css)
+            if delays is not None:
+                pg.evaluate(r"""(delays) => {
+                    const h = document.querySelector('h1') || document.querySelector('[class*=headline]');
+                    if (!h) return;
+                    const words = h.textContent.trim().split(/\s+/);
+                    h.innerHTML = words.map((w,i)=>`<span class="w"><i style="animation-delay:${(delays[i]||i*0.35).toFixed(2)}s"></i><b>${w.replace(/[&<>]/g,'')}</b></span>`).join(' ');
+                }""", delays)
+            pg.evaluate("() => { const h=document.querySelector('h1'); if(h) h.scrollIntoView({block:'start'}); }")
+            pg.wait_for_timeout(400)
+            if scroll:                                   # human "browsing" b-roll
+                for _ in range(int(dur * 2)):
+                    pg.mouse.wheel(0, 260); pg.wait_for_timeout(500)
+            else:
+                pg.wait_for_timeout(int(dur * 1000))
+            v = pg.video; pg.close(); out = v.path(); ctx.close(); b.close()
+        return out
+    except Exception as e:
+        logger.warning(f"mobile record failed: {e}")
+        return None
+
+def main_image_url(url):
+    """The biggest real photo in the article — the one a human would save."""
+    from playwright.sync_api import sync_playwright
+    try:
+        with sync_playwright() as pw:
+            b = pw.chromium.launch()
+            pg = b.new_page(viewport={"width": 420, "height": 900}, user_agent=MOBILE_UA)
+            pg.goto(url, wait_until="domcontentloaded", timeout=30000)
+            pg.wait_for_timeout(2000)
+            src = pg.evaluate("""() => {
+                let best=null, area=0;
+                document.querySelectorAll('article img, main img, figure img, img').forEach(im => {
+                    const r = im.getBoundingClientRect(); const a = r.width*r.height;
+                    if (a > area && r.width > 200) { area = a; best = im.currentSrc || im.src; }
+                });
+                return best; }""")
+            b.close()
+        return src if src and src.startswith("http") else None
+    except Exception:
+        return None
+
+def commons_video(query, path):
+    """Real CC footage from Wikimedia Commons (floods, traffic, parliament…)."""
+    try:
+        r = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=20, params={
+            "action": "query", "format": "json", "generator": "search",
+            "gsrsearch": f"filetype:video {query}", "gsrnamespace": 6,
+            "prop": "imageinfo", "iiprop": "url|mime"}).json()
+        for p in ((r.get("query") or {}).get("pages") or {}).values():
+            ii = (p.get("imageinfo") or [{}])[0]
+            if "video" in (ii.get("mime") or "") and media.download(ii.get("url"), path, 240):
+                return path
+    except Exception as e:
+        logger.warning(f"commons video failed: {e}")
+    return None

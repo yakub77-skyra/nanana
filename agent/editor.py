@@ -10,7 +10,7 @@ from loguru import logger
 
 from . import fx, tts, clips, media
 from .config import settings
-from .renderer import CARD          # Phase-1 article card
+from .renderer import CARD
 from .schemas import Scene
 
 FF = ioff.get_ffmpeg_exe()
@@ -24,7 +24,6 @@ def _font(size: int = 84):
     except Exception: return ImageFont.load_default()
 
 def _ensure_audio(src: str) -> str:
-    """Guarantees every segment has an AAC stereo track."""
     probe = subprocess.run([FF, "-i", src], capture_output=True, text=True)
     if "Audio:" in probe.stderr: return src
     out = src.replace(".mp4", "_a.mp4")
@@ -40,11 +39,20 @@ def _placeholder_img(path: str, text: str):
            font=_font(72), fill=(235, 235, 235), anchor="mm")
     img.save(path)
 
-def _seg_mux(visual, vo, out, dur):
+def _seg_mux(visual, vo, out, dur, blur=False):
+    """Single unified muxer — blur=True gives the human-style blurred 9:16 fill."""
     cmd = [FF, "-y", "-i", visual]
     cmd += ["-i", vo["mp3"]] if vo else ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
-    cmd += ["-t", f"{dur:.2f}", "-vf", "scale=1080:1920,fps=30",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+    if blur:
+        cmd += ["-filter_complex",
+                "[0:v]split[fg][bg];"
+                "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=18[b];"
+                "[fg]scale=1080:-2[f];"
+                "[b][f]overlay=(W-w)/2:(H-h)/2,fps=30[v]",
+                "-map", "[v]", "-map", "1:a"]
+    else:
+        cmd += ["-vf", "scale=1080:1920,fps=30", "-map", "0:v", "-map", "1:a"]
+    cmd += ["-t", f"{dur:.2f}", "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest", out]
     subprocess.run(cmd, check=True, capture_output=True)
 
@@ -56,7 +64,6 @@ def _overlay_png(scene, path):
     if scene.stat_text:
         txt, size = scene.stat_text.upper(), 84
         f = _font(size)
-        # Auto-shrink to fit screen (fixes cut-off text)
         while True:
             bbox = d.textbbox((0, 0), txt, font=f)
             if (bbox[2] - bbox[0]) <= 960 or size <= 40: break
@@ -66,7 +73,7 @@ def _overlay_png(scene, path):
                stroke_width=max(2, size // 20), stroke_fill=(0, 0, 0, 255), anchor="mm")
     img.save(path)
 
-# ---------------- Phase 5: Single-Take Voice Logic ----------------
+# ---------------- Single-Take Voice Logic ----------------
 def _norm(w): return re.sub(r"[^a-z0-9\u0900-\u097F]+", "", w.lower())
 
 def _slice(mp3, s, e, out):
@@ -74,11 +81,8 @@ def _slice(mp3, s, e, out):
                     "-c", "copy", out], check=True, capture_output=True)
 
 def _scene_windows(scenes, words):
-    """Aligns the single continuous voice take to each scene."""
-    # SAFETY NET: If TTS returned no words, make scenes silent (4s each)
     if not words:
         return [None] * len(scenes)
-        
     toks = [_norm(w) for w, _, _ in words]
     wins, ptr = [], 0
     for sc in scenes:
@@ -104,9 +108,7 @@ def render_all(scenes, take):
                 vo = {"mp3": sp, "words": w[2], "dur": w[1] - w[0] + 0.1}
             segs.append(render_scene(sc, i, vo))
         except Exception as e:
-            # SAFETY NET: Skip broken scenes instead of killing the whole reel
             logger.error(f"❌ Scene {i} ({sc.type}) failed → skipped: {e}")
-            
     if not segs:
         raise RuntimeError("All scenes failed to render — check logs")
     return segs
@@ -120,17 +122,20 @@ def render_scene(scene, i, vo=None):
     out = os.path.join(settings.output_dir, f"seg_{i}.mp4")
 
     if scene.type == "map":
-        from . import scraper
-        lat, lon = None, None
-        if scene.pin:
-            lat, lon = scraper.geocode(scene.pin)
-        webm = fx.record_html(fx.map_html(scene.country or "India", scene.pin,
-                                          scene.overlay_text, dur, lat=lat, lon=lon), dur, f"map{i}")
+        lat, lon, geo_country = (scraper.geocode(scene.pin) if scene.pin else (None, None, ""))
+        country = geo_country or scene.country or "India"
+        webm = fx.record_html(fx.map_html(country, scene.pin, scene.overlay_text,
+                                          dur, lat=lat, lon=lon), dur, f"map{i}")
         _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "clip":
         clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur, scene.article_link)
-        if not clip: raise RuntimeError("no REAL footage found → scene skipped")
+        if not clip and scene.article_link:
+            clip = scraper.mobile_record(scene.article_link, f"broll{i}", dur, scroll=True)
+        if not clip:
+            clip = scraper.commons_video(scene.clip_query or "news",
+                                         os.path.join(settings.output_dir, f"cv_{i}.mp4"))
+        if not clip: raise RuntimeError("no REAL footage → scene skipped")
         if scene.red_circle or scene.stat_text:
             ov = os.path.join(settings.output_dir, f"ov_{i}.png")
             _overlay_png(scene, ov)
@@ -139,16 +144,16 @@ def render_scene(scene, i, vo=None):
                             "[0:v][1:v]overlay=0:0", "-c:v", "libx264",
                             "-pix_fmt", "yuv420p", "-an", tmp], check=True, capture_output=True)
             clip = tmp
-        _seg_mux(clip, vo, out, dur)
+        _seg_mux(clip, vo, out, dur, blur=True)
 
     elif scene.type == "article":
         webm = None
-        if scene.article_link and vo:                       # REAL page + REAL highlight
-            webm = scraper.live_karaoke(scene.article_link, [w[1] + 0.4 for w in vo["words"]],
-                                        f"live{i}", dur)
+        if scene.article_link and vo:
+            webm = scraper.mobile_record(scene.article_link, f"live{i}", dur,
+                                         delays=[w[1] + 0.4 for w in vo["words"]])
         if webm:
-            _seg_mux(webm, vo, out, dur)
-        else:                                               # fallback: replica card
+            _seg_mux(webm, vo, out, dur, blur=True)
+        else:
             words = (scene.headline or "").split()
             delays = ([w[1] + 0.3 for w in vo["words"]][:len(words)] if vo else [0.3 + j * 0.4 for j in range(len(words))])
             while len(delays) < len(words):
@@ -169,8 +174,8 @@ def render_scene(scene, i, vo=None):
     elif scene.type == "breaking":
         img = os.path.join(settings.output_dir, f"br_{i}.jpg")
         ok = media.download(scene.image_url, img) if scene.image_url else None
-        if not ok and scene.article_link:                   # REAL page screenshot fallback
-            ok = scraper.page_screenshot(scene.article_link, img)
+        if not ok and scene.article_link:
+            ok = media.download(scraper.main_image_url(scene.article_link), img)
         if not ok:
             ok = clips.get_image(scene.breaking_image_query or scene.breaking_headline, img)
         if not ok:
@@ -181,12 +186,11 @@ def render_scene(scene, i, vo=None):
 
     logger.success(f"🎞️ Scene {i} ({scene.type}) rendered")
     return out
+
 # ---------------- final assembly ----------------
 def assemble(segments, final):
-    # SAFETY NET: Fail loudly if only the outro exists (no more silent outro-only reels)
     if len(segments) < 2:
         raise RuntimeError("Only outro rendered — content scenes failed. Check logs above.")
-        
     segments = [_ensure_audio(s) for s in segments]
     listf = os.path.join(settings.output_dir, "segs.txt")
     with open(listf, "w", encoding="utf-8") as f:
@@ -195,7 +199,6 @@ def assemble(segments, final):
     subprocess.run([FF, "-y", "-f", "concat", "-safe", "0", "-i", listf,
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30",
                     "-c:a", "aac", "-ar", "44100", "-ac", "2", joined], check=True, capture_output=True)
-
     music = os.path.join("assets", "music.mp3")
     cmd = [FF, "-y", "-i", joined]
     if os.path.exists(music):
