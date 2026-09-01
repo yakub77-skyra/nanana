@@ -3,14 +3,9 @@ from langgraph.graph import StateGraph, START, END
 from . import nodes
 
 class AgentState(TypedDict, total=False):
-    articles: list
-    selected: dict
-    schema: dict
-    article: dict
-    _scraped: dict          # ← FIX: real quotes/body from deep_scrape (was missing → quotes never enforced)
-    segments: list
-    final: str
-    reel_format: str
+    articles: list; selected: dict; schema: dict; article: dict
+    _scraped: dict
+    segments: list; final: str; reel_format: str
 
 def build():
     g = StateGraph(AgentState)
@@ -25,7 +20,6 @@ def build():
     g.add_node("assemble", nodes.assemble)
     g.add_node("publish", nodes.publish)
     g.add_node("reply", nodes.reply_comments)
-
     g.add_edge(START, "fetch")
     g.add_edge("fetch", "learn")
     g.add_edge("learn", "format")

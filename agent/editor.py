@@ -15,13 +15,17 @@ from .schemas import Scene
 
 FF = ioff.get_ffmpeg_exe()
 
-# ---------------- helpers ----------------
 def _font(size: int = 84):
     for name in ("arial.ttf", "Arial.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"):
         try: return ImageFont.truetype(name, size)
         except Exception: continue
     try: return ImageFont.load_default(size)
     except Exception: return ImageFont.load_default()
+
+def _probe_dur(src):
+    probe = subprocess.run([FF, "-i", src], capture_output=True, text=True)
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", probe.stderr)
+    return (int(m.group(1))*3600 + int(m.group(2))*60 + float(m.group(3))) if m else 4.0
 
 def _ensure_audio(src: str) -> str:
     probe = subprocess.run([FF, "-i", src], capture_output=True, text=True)
@@ -32,6 +36,16 @@ def _ensure_audio(src: str) -> str:
                     "-shortest", out], check=True, capture_output=True)
     return out
 
+def _polish(seg):
+    """P6.5 pro-edit: 0.12s dip at each cut = broadcast-style transitions."""
+    out = seg.replace(".mp4", "_p.mp4")
+    d = _probe_dur(seg)
+    subprocess.run([FF, "-y", "-i", seg,
+                    "-vf", f"fade=t=in:st=0:d=0.12,fade=t=out:st={max(d-0.15,0):.2f}:d=0.15",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "copy", out],
+                   check=True, capture_output=True)
+    return out
+
 def _placeholder_img(path: str, text: str):
     img = Image.new("RGB", (1080, 1350), (18, 18, 18))
     d = ImageDraw.Draw(img)
@@ -40,15 +54,13 @@ def _placeholder_img(path: str, text: str):
     img.save(path)
 
 def _is_bad_capture(seg):
-    """P6.4 QC GATE (M010 detector): flat mid-gray = dead Playwright canvas.
-    A rejected capture triggers the designed fallback (replica card / commons)."""
+    """P6.4 QC GATE (M010): flat mid-gray = dead Playwright canvas."""
     try:
         png = seg + "_qc.png"
         subprocess.run([FF, "-y", "-i", seg, "-vf", "select=eq(n\\,12)", "-frames:v", "1", png],
                        check=True, capture_output=True)
         px = list(Image.open(png).convert("RGB").resize((54, 96)).getdata())
-        gray = sum(1 for r, g, b in px
-                   if abs(r - 128) < 14 and abs(g - 128) < 14 and abs(b - 128) < 14)
+        gray = sum(1 for r, g, b in px if abs(r-128) < 14 and abs(g-128) < 14 and abs(b-128) < 14)
         ratio = gray / len(px)
         if ratio > 0.35:
             logger.warning(f"🧪 QC: {os.path.basename(seg)} gray {ratio:.0%} → rejected, using fallback")
@@ -58,8 +70,6 @@ def _is_bad_capture(seg):
     return False
 
 def _seg_mux(visual, vo, out, dur, blur=False):
-    """Unified muxer. blur=True = blurred 9:16 fill for non-9:16 sources only.
-    M010: lanczos on every upscale so 540×960 phone captures stay crisp at 1080×1920."""
     cmd = [FF, "-y", "-i", visual]
     cmd += ["-i", vo["mp3"]] if vo else ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
     if blur:
@@ -92,7 +102,6 @@ def _overlay_png(scene, path):
                stroke_width=max(2, size // 20), stroke_fill=(0, 0, 0, 255), anchor="mm")
     img.save(path)
 
-# ---------------- single-take voice alignment ----------------
 def _norm(w): return re.sub(r"[^a-z0-9\u0900-\u097F]+", "", w.lower())
 
 def _slice(mp3, s, e, out):
@@ -132,7 +141,6 @@ def render_all(scenes, take):
         raise RuntimeError("All scenes failed to render — check logs")
     return segs
 
-# ---------------- per-scene renderer ----------------
 def render_scene(scene, i, vo=None):
     from . import scraper
     if vo is None:
@@ -158,9 +166,9 @@ def render_scene(scene, i, vo=None):
         clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur, scene.article_link)
         if not clip and scene.article_link:
             cand = scraper.mobile_record(scene.article_link, f"broll{i}", dur, scroll=True)
-            if cand and not _is_bad_capture(cand):      # QC gate on b-roll
+            if cand and not _is_bad_capture(cand):
                 clip = cand
-                blurred = False                          # native 9:16 → lanczos upscale only
+                blurred = False
         if not clip:
             clip = scraper.commons_video(scene.clip_query or "news",
                                          os.path.join(settings.output_dir, f"cv_{i}.mp4"))
@@ -180,10 +188,10 @@ def render_scene(scene, i, vo=None):
         if scene.article_link and vo:
             webm = scraper.mobile_record(scene.article_link, f"live{i}", dur,
                                          delays=[w[1] + 0.4 for w in vo["words"]])
-            if webm and _is_bad_capture(webm):           # QC gate on live capture
-                webm = None                              # → replica card fallback
+            if webm and _is_bad_capture(webm):
+                webm = None
         if webm:
-            _seg_mux(webm, vo, out, dur)                 # native 9:16 → NO blur
+            _seg_mux(webm, vo, out, dur)
         else:
             words = (scene.headline or "").split()
             delays = ([w[1] + 0.3 for w in vo["words"]][:len(words)] if vo else [0.3 + j * 0.4 for j in range(len(words))])
@@ -218,11 +226,10 @@ def render_scene(scene, i, vo=None):
     logger.success(f"🎞️ Scene {i} ({scene.type}) rendered")
     return out
 
-# ---------------- final assembly ----------------
 def assemble(segments, final):
     if len(segments) < 2:
         raise RuntimeError("Only outro rendered — content scenes failed. Check logs above.")
-    segments = [_ensure_audio(s) for s in segments]
+    segments = [_polish(_ensure_audio(s)) for s in segments]
     listf = os.path.join(settings.output_dir, "segs.txt")
     with open(listf, "w", encoding="utf-8") as f:
         f.write("\n".join(f"file '{Path(s).resolve().as_posix()}'" for s in segments))
@@ -231,11 +238,7 @@ def assemble(segments, final):
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30",
                     "-c:a", "aac", "-ar", "44100", "-ac", "2", joined], check=True, capture_output=True)
 
-    # P6.4: broadcast-style fade in / fade out
-    probe = subprocess.run([FF, "-i", joined], capture_output=True, text=True)
-    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", probe.stderr)
-    T = (int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))) if m else 30.0
-
+    T = _probe_dur(joined)
     music = os.path.join("assets", "music.mp3")
     cmd = [FF, "-y", "-i", joined]
     if os.path.exists(music):
@@ -244,7 +247,7 @@ def assemble(segments, final):
                 "-map", "0:v", "-map", "[a]"]
     else:
         cmd += ["-map", "0:v", "-map", "0:a"]
-    cmd += ["-vf", f"fade=t=in:st=0:d=0.4,fade=t=out:st={max(T - 0.6, 0):.2f}:d=0.6"]
+    cmd += ["-vf", f"fade=t=in:st=0:d=0.4,fade=t=out:st={max(T-0.6,0):.2f}:d=0.6"]
     cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
             "-movflags", "+faststart", final]
     subprocess.run(cmd, check=True, capture_output=True)

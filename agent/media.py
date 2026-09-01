@@ -15,7 +15,6 @@ def download(url, path, timeout=120):
     return None
 
 def og_image(url):
-    """Real publisher photo — with guards against logos/placeholders."""
     if not url or "news.google.com" in url:
         return None
     try:
@@ -31,7 +30,6 @@ def og_image(url):
         return None
 
 def commons_image(query, path):
-    """Real CC-licensed press-type photos (keyless). M012: reject non-JSON replies."""
     try:
         r = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=20, params={
             "action": "query", "format": "json", "generator": "search",

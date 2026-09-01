@@ -116,8 +116,8 @@ def breaking_html(headline, sub, img_path, dur):
     date_str = ist_now.strftime("%d %b").upper()
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 *{{margin:0;box-sizing:border-box}}html,body{{width:1080px;height:1920px;background:#222;overflow:hidden;font-family:Arial}}
-#card{{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:950px;background:#fff;animation:pop .4s ease-out}}
-@keyframes pop{{from{{opacity:0;transform:translate(-50%,-50%) scale(.9)}}}}
+#card{{position:absolute;top:50%;left:50%;width:950px;background:#fff;animation:pop .4s ease-out,zoomin {dur:.1f}s linear forwards}}
+@keyframes zoomin{{from{{transform:translate(-50%,-50%) scale(1)}}to{{transform:translate(-50%,-50%) scale(1.05)}}}}
 #bk{{font-size:150px;font-weight:900;letter-spacing:-4px;color:#000;padding:40px 50px 0}}
 #hl{{padding:10px 50px;font-size:56px;font-weight:800;line-height:1.3;color:#000}}
 .r{{background:#d40000;color:#000}}#sub{{padding:14px 50px;font-size:28px;color:#333}}
