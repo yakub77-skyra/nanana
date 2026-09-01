@@ -124,12 +124,14 @@ def render_scene(scene, i, vo=None):
     if scene.type == "map":
         lat, lon, geo_country = (scraper.geocode(scene.pin) if scene.pin else (None, None, ""))
         country = scene.country or "India"
+        use_coords = False
         if geo_country and fx.has_country(geo_country):
-            country = geo_country                      # pin's real country (US story → US map)
+            country = geo_country; use_coords = True
         if not fx.has_country(country):
-            country = "India"                          # never a red-less map
-        webm = fx.record_html(fx.map_html(country, scene.pin, scene.overlay_text,
-                                          dur, lat=lat, lon=lon), dur, f"map{i}")
+            country = "India"; use_coords = False
+        webm = fx.record_html(fx.map_html(country, scene.pin, scene.overlay_text, dur,
+                                          lat=lat if use_coords else None,
+                                          lon=lon if use_coords else None), dur, f"map{i}")
         _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "clip":

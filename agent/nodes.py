@@ -197,37 +197,78 @@ Caption + 8 hashtags."""
         
     return {"schema": schema, "article": a, "_scraped": scraped}
 
+# ------------------------------------------------------------------
+# P6.3b TRUTH ENFORCEMENT (graph-independent — runs inside render_scenes)
+# ------------------------------------------------------------------
 KNOWN_LOC = ["delhi","mumbai","bihar","noida","gurugram","jaipur","kanpur","patna","kolkata",
              "chennai","bengaluru","hyderabad","ahmedabad","pune","lucknow","india","nepal",
              "china","usa","us","america","russia","uk","pakistan","bangladesh","sri lanka",
              "jammu","kashmir","manipur","assam","uttar pradesh","madhya pradesh","maharashtra",
              "gujarat","rajasthan","punjab","tamil nadu","kerala","west bengal","odisha","munger"]
 
+def _cut(s, n):
+    """Word-safe truncation — never produces 'DELH' or 'STOL' mid-word."""
+    s = s or ""
+    if len(s) <= n: return s
+    cut = s[:n]
+    return (cut[:cut.rfind(" ")] or cut).strip()
+
+def _enforce_truth(scenes, state):
+    """Truth Layer that ALWAYS runs regardless of graph wiring."""
+    a = state.get("article") or {}
+    rss = a.get("title", "")
+    src = (a.get("source") or "").upper()
+    quotes = (state.get("_scraped") or {}).get("quotes", [])
+    low = rss.lower()
+
+    for sc in scenes:
+        # Pin must be a real place, never a person like "Mother" or "After"
+        if sc.type == "map":
+            pin = (sc.pin or "").lower()
+            if not any(k in pin for k in KNOWN_LOC):
+                fix = next((k for k in KNOWN_LOC if k in low), None)
+                sc.pin = fix.title() if fix else (sc.country or "India")
+            sc.overlay_text = (_cut(rss, 44).upper() or sc.overlay_text)
+
+        # Main story breaking headline = verbatim RSS (word-safe)
+        if sc.type == "breaking" and src and (sc.breaking_sub or "").upper().startswith(src):
+            sc.breaking_headline = _cut(rss, 60).upper()
+
+        # Quotes = real scraped quotes only
+        if sc.type == "quote" and quotes and sc.quote_text not in quotes:
+            sc.quote_text = quotes[0]
+
+    # Force at least one clip scene so the reel never feels sparse
+    if not any(sc.type == "clip" for sc in scenes):
+        kw = " ".join(w for w in rss.split() if len(w) > 4)[:40] or "news"
+        scenes.insert(1, Scene(type="clip", clip_query=kw.lower(), narration=rss))
+
+    return scenes
+
+# Also update proofread_schema to use word-safe cuts (belt + suspenders)
 def proofread_schema(state):
     schema = state["schema"]
     a = state["article"]
-    rss_title = a["title"].upper()
+    rss_title = a["title"]
     scraped = state.get("_scraped", {})
     real_quotes = scraped.get("quotes", [])
     head_low = rss_title.lower()
 
     for scene in schema.get("scenes", []):
         if scene.get("type") == "breaking" and scene.get("breaking_sub", "").upper().startswith(a["source"].upper()):
-            scene["breaking_headline"] = rss_title[:60]
+            scene["breaking_headline"] = _cut(rss_title, 60).upper()
         if scene.get("type") == "quote" and real_quotes:
             scene["quote_text"] = real_quotes[0]
-        # PIN SANITY: pin must be a place, never a person like "Mother"
         if scene.get("type") == "map":
             pin = (scene.get("pin") or "").lower()
             if not any(k in pin for k in KNOWN_LOC):
                 fix = next((k for k in KNOWN_LOC if k in head_low), None)
                 scene["pin"] = fix.title() if fix else (scene.get("country") or "India")
 
-    # FORCE at least one clip scene so the reel never feels sparse
     if not any(s.get("type") == "clip" for s in schema["scenes"]):
-        kw = " ".join([w for w in a["title"].split() if len(w) > 4][:3]) or "news"
+        kw = " ".join([w for w in rss_title.split() if len(w) > 4][:3]) or "news"
         schema["scenes"].insert(1, Scene(type="clip", clip_query=kw.lower(),
-                                         narration=a["title"]).model_dump())
+                                         narration=rss_title).model_dump())
     return {"schema": schema}
 
 # ------------------------------------------------------------------
@@ -236,6 +277,9 @@ def proofread_schema(state):
 def render_scenes(state):
     from . import editor, fx, media, tts
     scenes = [Scene(**s) for s in state["schema"]["scenes"]]
+    
+    # P6.3b: Enforce truth HERE (graph-independent safety net)
+    scenes = _enforce_truth(scenes, state)
     
     # Attach real photos and article links
     for sc in scenes:
@@ -327,7 +371,7 @@ CRITICAL VISUAL RULES:
 - Never use graphic, gory, or disturbing imagery descriptions."""
     resp = llm_create(prompt, RoundupSchema)
     items = resp.scenes or [
-        RoundupScene(headline=x["title"][:60].upper(), narration=x["title"],
+        RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"],
                      image_query="news") for x in state["articles"][:8]
     ]
     scenes = [Scene(type="breaking", breaking_headline="INDIA IN LAST 24 HOURS",

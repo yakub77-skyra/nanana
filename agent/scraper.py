@@ -160,6 +160,11 @@ def mobile_record(url, name, dur, delays=None, scroll=False):
             pg.goto(url, wait_until="domcontentloaded", timeout=30000)
             pg.wait_for_timeout(2500)
             pg.add_style_tag(content=css)
+            pg.wait_for_timeout(3000)
+            txt_len = pg.evaluate("() => ((document.body && document.body.innerText) || '').length")
+            if txt_len < 200:                      # blank/blocked page → fallback to replica card
+                pg.close(); ctx.close(); b.close()
+                return None
             if delays is not None:
                 pg.evaluate(r"""(delays) => {
                     const h = document.querySelector('h1') || document.querySelector('[class*=headline]');
