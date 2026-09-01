@@ -13,6 +13,7 @@ class Settings(BaseSettings):
         "mistralai/mistral-7b-instruct:free,"
         "google/gemma-3-27b-it:free,"
         "qwen/qwen-2.5-7b-instruct:free"
+        "inclusionai/ling-3.0-flash-fin:free"
     )
 
     tts_voice: str = "en-IN-PrabhatNeural"
