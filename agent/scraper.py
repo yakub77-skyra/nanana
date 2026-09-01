@@ -113,11 +113,10 @@ def mobile_record(url, name, dur, delays=None, scroll=False):
     try:
         with sync_playwright() as pw:
             b = pw.chromium.launch()
-            ctx = b.new_context(viewport={"width": 540, "height": 960},   # exact 9:16
+            ctx = b.new_context(viewport={"width": 540, "height": 960},
                                 device_scale_factor=1,
                                 user_agent=MOBILE_UA, is_mobile=True, has_touch=True,
-                                record_video_dir=str(RAW),
-                                record_video_size={"width": 1080, "height": 1920})
+                                record_video_dir=str(RAW))
             pg = ctx.new_page()
             pg.goto(url, wait_until="domcontentloaded", timeout=30000)
             pg.wait_for_timeout(2500)

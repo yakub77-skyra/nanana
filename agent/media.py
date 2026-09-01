@@ -31,13 +31,17 @@ def og_image(url):
         return None
 
 def commons_image(query, path):
-    """Real CC-licensed press-type photos (keyless)."""
+    """Real CC-licensed press-type photos (keyless). M012: reject non-JSON replies."""
     try:
         r = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=20, params={
             "action": "query", "format": "json", "generator": "search",
             "gsrsearch": f"filetype:bitmap {query}", "gsrnamespace": 6,
-            "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 1080}).json()
-        for p in ((r.get("query") or {}).get("pages") or {}).values():
+            "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 1080})
+        if r.status_code != 200 or "json" not in r.headers.get("content-type", ""):
+            logger.warning(f"commons non-JSON ({r.status_code}) → skip")
+            return None
+        data = r.json()
+        for p in ((data.get("query") or {}).get("pages") or {}).values():
             ii = (p.get("imageinfo") or [{}])[0]
             if download(ii.get("thumburl") or ii.get("url"), path): return path
     except Exception as e:

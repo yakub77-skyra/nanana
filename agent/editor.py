@@ -40,18 +40,19 @@ def _placeholder_img(path: str, text: str):
     img.save(path)
 
 def _seg_mux(visual, vo, out, dur, blur=False):
-    """Unified muxer. blur=True = blurred 9:16 fill for non-9:16 sources only."""
+    """Unified muxer. blur=True = blurred 9:16 fill for non-9:16 sources only.
+    M010: lanczos on every upscale so 540×960 phone captures stay crisp at 1080×1920."""
     cmd = [FF, "-y", "-i", visual]
     cmd += ["-i", vo["mp3"]] if vo else ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
     if blur:
         cmd += ["-filter_complex",
                 "[0:v]split[fg][bg];"
                 "[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=18[b];"
-                "[fg]scale=1080:-2[f];"
+                "[fg]scale=1080:-2:flags=lanczos[f];"
                 "[b][f]overlay=(W-w)/2:(H-h)/2,fps=30[v]",
                 "-map", "[v]", "-map", "1:a"]
     else:
-        cmd += ["-vf", "scale=1080:1920,fps=30", "-map", "0:v", "-map", "1:a"]
+        cmd += ["-vf", "scale=1080:1920:flags=lanczos,fps=30", "-map", "0:v", "-map", "1:a"]
     cmd += ["-t", f"{dur:.2f}", "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest", out]
     subprocess.run(cmd, check=True, capture_output=True)
@@ -139,7 +140,7 @@ def render_scene(scene, i, vo=None):
         clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur, scene.article_link)
         if not clip and scene.article_link:
             clip = scraper.mobile_record(scene.article_link, f"broll{i}", dur, scroll=True)
-            blurred = False                       # native 9:16 → no blur needed
+            blurred = False                       # native 9:16 → lanczos upscale only
         if not clip:
             clip = scraper.commons_video(scene.clip_query or "news",
                                          os.path.join(settings.output_dir, f"cv_{i}.mp4"))
@@ -160,7 +161,7 @@ def render_scene(scene, i, vo=None):
             webm = scraper.mobile_record(scene.article_link, f"live{i}", dur,
                                          delays=[w[1] + 0.4 for w in vo["words"]])
         if webm:
-            _seg_mux(webm, vo, out, dur)          # native 9:16 → NO blur (fix)
+            _seg_mux(webm, vo, out, dur)          # native 9:16 → NO blur
         else:
             words = (scene.headline or "").split()
             delays = ([w[1] + 0.3 for w in vo["words"]][:len(words)] if vo else [0.3 + j * 0.4 for j in range(len(words))])
