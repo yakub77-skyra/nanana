@@ -1,4 +1,3 @@
-
 import html as _html, os, base64, datetime, json, math, re, random
 from pathlib import Path
 import httpx
@@ -39,8 +38,9 @@ def record_html(page_html, dur, name, viewport=(1080, 1920)):
         pg.wait_for_timeout(int(dur * 1000))
         v = pg.video
         pg.close()
-        out = v.path()
+        # Context MUST be closed before accessing path to ensure video is flushed to disk
         ctx.close()
+        out = v.path()
         b.close()
     return out
 
@@ -66,6 +66,9 @@ def has_country(name):
 
 def get_country_path(name):
     """Get SVG path data for a country."""
+    if not name:
+        return None, None, None
+        
     gj = _geojson()["features"]
     nm = lambda f: (f["properties"].get("NAME") or "").lower()
     target = next((f for f in gj if nm(f) == name.lower()), None)
@@ -74,18 +77,33 @@ def get_country_path(name):
     if target is None:
         return None, None, None
     
-    rings = lambda f: ([p[0] for p in f["geometry"]["coordinates"]] if f["geometry"]["type"] == "MultiPolygon"
-                       else [f["geometry"]["coordinates"][0]])
-    tr = rings(target)
+    # Safe geometry extraction to prevent crashes on malformed GeoJSON
+    geom = target.get("geometry", {})
+    geom_type = geom.get("type", "")
+    coords = geom.get("coordinates", [])
+    
+    if geom_type == "MultiPolygon":
+        tr = [p[0] for p in coords if p]
+    elif geom_type == "Polygon":
+        tr = [coords[0]] if coords else []
+    else:
+        tr = []
+        
+    if not tr:
+        return None, None, None
+        
     txs = [c[0] for r in tr for c in r]
     tys = [c[1] for r in tr for c in r]
+    
+    if not txs or not tys:
+        return None, None, None
+        
     cx, cy = (min(txs)+max(txs))/2, (min(tys)+max(tys))/2
-    w = max(max(txs)-min(txs), 20)
     
     X = lambda lo: (lo + 180) * 6
     Y = lambda la: (90 - la) * 6
     
-    d = "".join("M" + "L".join(f"{X(c[0]):.0f} {Y(c[1]):.0f}" for c in r[::2]) + "Z" for r in rings(target))
+    d = "".join("M" + "L".join(f"{X(c[0]):.0f} {Y(c[1]):.0f}" for c in r[::2]) + "Z" for r in tr)
     return d, cx, cy
 
 # ------------------------------------------------------------------
@@ -149,9 +167,14 @@ def map_intro_html(country, overlay_text, dur, theme="purple", topic_img=None, p
         "blue": {"glow": "#2563eb", "glow2": "#1e40af", "accent": "#60a5fa"},
     }
     c = colors.get(theme, colors["purple"])
+    
+    # Safe unpacking fallback logic
     path_d, cx, cy = get_country_path(country)
     if not path_d:
-        path_d, cx, cy = get_country_path("India") or ("", 78.0, 22.0)
+        path_d, cx, cy = get_country_path("India")
+        if not path_d:
+            path_d, cx, cy = "", 78.0, 22.0
+            
     pin_b64 = _b64_or_empty(topic_img)
     pin_html = f"""<div class="pin-wrap">
         <div class="pin-ring"><img src="data:image/jpeg;base64,{pin_b64}"/></div>
@@ -182,10 +205,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 .pin-wrap{{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);text-align:center;animation:pinPop 0.6s 0.8s ease-out forwards;opacity:0}}
 @keyframes pinPop{{0%{{opacity:0;transform:translate(-50%,-50%) scale(0.5)}}100%{{opacity:1;transform:translate(-50%,-50%) scale(1)}}}}
 .pin-ring{{width:180px;height:180px;border-radius:50%;border:4px solid #fff;overflow:hidden;margin:0 auto;box-shadow:0 0 50px {c["glow"]}, 0 0 80px {c["glow2"]};background:#1a1a1a;animation:pinPulse 2s ease-in-out infinite}}
-@keyframes pinPulse{{
-  0%, 100% {{ box-shadow: 0 0 50px {c["glow"]}, 0 0 80px {c["glow2"]}; }}
-  50% {{ box-shadow: 0 0 70px {c["glow"]}, 0 0 120px {c["glow2"]}; }}
-}}
+@keyframes pinPulse{{0%,100%{{box-shadow:0 0 50px {c["glow"]}, 0 0 80px {c["glow2"]}}50%{{box-shadow:0 0 70px {c["glow"]}, 0 0 120px {c["glow2"]}}}}}
 .pin-ring img{{width:100%;height:100%;object-fit:cover}}
 .pin-label{{margin-top:14px;background:#fff;color:#111;font-weight:900;font-size:38px;letter-spacing:2px;padding:10px 28px;border-radius:10px;display:inline-block;box-shadow:0 6px 30px rgba(0,0,0,0.8)}}
 {LOGO_SVG}
@@ -363,7 +383,14 @@ def location_highlight_html(country, location, photo_b64, overlay_text, dur, the
         "blue": {"glow": "#2563eb", "glow2": "#1e40af", "fill": "#1e3a5f"},
     }
     c = colors.get(theme, colors["red"])
-    path_d, cx, cy = get_country_path(country) or get_country_path("India") or ("", 78.0, 22.0)
+    
+    # Safe unpacking fallback logic
+    path_d, cx, cy = get_country_path(country)
+    if not path_d:
+        path_d, cx, cy = get_country_path("India")
+        if not path_d:
+            path_d, cx, cy = "", 78.0, 22.0
+            
     safe_text = _html.escape(overlay_text or location or "LOCATION")
     safe_loc = _html.escape(location or "LOCATION")
     
