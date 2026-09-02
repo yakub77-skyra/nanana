@@ -73,8 +73,3 @@ class RoundupSchema(BaseModel):
 
 class CommentReply(BaseModel):
     text: str = Field(description="The generated reply text")
-
-with open("/mnt/agents/output/agent/schemas.py", "w", encoding="utf-8") as f:
-    f.write(schemas_content)
-
-print("schemas.py written successfully")
