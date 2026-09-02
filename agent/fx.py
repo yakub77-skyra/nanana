@@ -38,9 +38,8 @@ def record_html(page_html, dur, name, viewport=(1080, 1920)):
         pg.wait_for_timeout(int(dur * 1000))
         v = pg.video
         pg.close()
-        # Context MUST be closed before accessing path to ensure video is flushed to disk
-        ctx.close()
         out = v.path()
+        ctx.close()
         b.close()
     return out
 
@@ -66,9 +65,6 @@ def has_country(name):
 
 def get_country_path(name):
     """Get SVG path data for a country."""
-    if not name:
-        return None, None, None
-        
     gj = _geojson()["features"]
     nm = lambda f: (f["properties"].get("NAME") or "").lower()
     target = next((f for f in gj if nm(f) == name.lower()), None)
@@ -77,33 +73,18 @@ def get_country_path(name):
     if target is None:
         return None, None, None
     
-    # Safe geometry extraction to prevent crashes on malformed GeoJSON
-    geom = target.get("geometry", {})
-    geom_type = geom.get("type", "")
-    coords = geom.get("coordinates", [])
-    
-    if geom_type == "MultiPolygon":
-        tr = [p[0] for p in coords if p]
-    elif geom_type == "Polygon":
-        tr = [coords[0]] if coords else []
-    else:
-        tr = []
-        
-    if not tr:
-        return None, None, None
-        
+    rings = lambda f: ([p[0] for p in f["geometry"]["coordinates"]] if f["geometry"]["type"] == "MultiPolygon"
+                       else [f["geometry"]["coordinates"][0]])
+    tr = rings(target)
     txs = [c[0] for r in tr for c in r]
     tys = [c[1] for r in tr for c in r]
-    
-    if not txs or not tys:
-        return None, None, None
-        
     cx, cy = (min(txs)+max(txs))/2, (min(tys)+max(tys))/2
+    w = max(max(txs)-min(txs), 20)
     
     X = lambda lo: (lo + 180) * 6
     Y = lambda la: (90 - la) * 6
     
-    d = "".join("M" + "L".join(f"{X(c[0]):.0f} {Y(c[1]):.0f}" for c in r[::2]) + "Z" for r in tr)
+    d = "".join("M" + "L".join(f"{X(c[0]):.0f} {Y(c[1]):.0f}" for c in r[::2]) + "Z" for r in rings(target))
     return d, cx, cy
 
 # ------------------------------------------------------------------
@@ -125,39 +106,6 @@ HANDLE_HTML = """<div id="handle" style="position:fixed;top:28px;right:28px;z-in
 </div>"""
 
 # ------------------------------------------------------------------
-# SCENE 0: INTRO MARQUEE (scrolling text teaser — matches reel_final.mp4 intro)
-# ------------------------------------------------------------------
-def intro_marquee_html(teaser_text, dur, theme="purple"):
-    colors = {
-        "purple": {"glow": "#c026d3", "glow2": "#7c3aed", "accent": "#e879f9"},
-        "red": {"glow": "#dc2626", "glow2": "#991b1b", "accent": "#f87171"},
-        "blue": {"glow": "#2563eb", "glow2": "#1e40af", "accent": "#60a5fa"},
-    }
-    c = colors.get(theme, colors["purple"])
-    safe_text = _html.escape(teaser_text or "INDIA IN LAST 24 HOURS").upper()
-    
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><style>
-*{{margin:0;padding:0;box-sizing:border-box}}
-html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
-#wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
-#glow{{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:900px;height:400px;background:radial-gradient(ellipse, {c["glow"]}18 0%, transparent 70%);pointer-events:none;animation:glowPulse 2s ease-in-out infinite}}
-@keyframes glowPulse{{0%,100%{{opacity:0.6;transform:translate(-50%,-50%) scale(1)}}50%{{opacity:1;transform:translate(-50%,-50%) scale(1.1)}}}}
-#marquee-track{{position:absolute;top:50%;left:0;width:100%;transform:translateY(-50%);overflow:hidden;white-space:nowrap}}
-#marquee-text{{display:inline-block;color:#fff;font-size:74px;font-weight:900;text-transform:uppercase;letter-spacing:3px;padding-left:1100px;text-shadow:0 0 40px {c["glow"]}, 0 0 80px {c["glow2"]}40, 0 4px 20px rgba(0,0,0,0.9);animation:scroll {dur:.2f}s linear forwards}}
-@keyframes scroll{{0%{{transform:translateX(0)}}100%{{transform:translateX(-100%)}}}}
-{LOGO_SVG}
-{HANDLE_HTML}
-</style></head><body>
-<div id="wrap">
-  <div id="glow"></div>
-  <div id="marquee-track">
-    <div id="marquee-text">{safe_text}&nbsp;&nbsp;&nbsp;&nbsp;{safe_text}&nbsp;&nbsp;&nbsp;&nbsp;{safe_text}</div>
-  </div>
-</div>
-</body></html>"""
-
-# ------------------------------------------------------------------
 # SCENE 1: MAP INTRO (3D satellite map with glowing country)
 # ------------------------------------------------------------------
 def map_intro_html(country, overlay_text, dur, theme="purple", topic_img=None, pin=None):
@@ -167,14 +115,9 @@ def map_intro_html(country, overlay_text, dur, theme="purple", topic_img=None, p
         "blue": {"glow": "#2563eb", "glow2": "#1e40af", "accent": "#60a5fa"},
     }
     c = colors.get(theme, colors["purple"])
-    
-    # Safe unpacking fallback logic
     path_d, cx, cy = get_country_path(country)
     if not path_d:
-        path_d, cx, cy = get_country_path("India")
-        if not path_d:
-            path_d, cx, cy = "", 78.0, 22.0
-            
+        path_d, cx, cy = get_country_path("India") or ("", 78.0, 22.0)
     pin_b64 = _b64_or_empty(topic_img)
     pin_html = f"""<div class="pin-wrap">
         <div class="pin-ring"><img src="data:image/jpeg;base64,{pin_b64}"/></div>
@@ -205,7 +148,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 .pin-wrap{{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);text-align:center;animation:pinPop 0.6s 0.8s ease-out forwards;opacity:0}}
 @keyframes pinPop{{0%{{opacity:0;transform:translate(-50%,-50%) scale(0.5)}}100%{{opacity:1;transform:translate(-50%,-50%) scale(1)}}}}
 .pin-ring{{width:180px;height:180px;border-radius:50%;border:4px solid #fff;overflow:hidden;margin:0 auto;box-shadow:0 0 50px {c["glow"]}, 0 0 80px {c["glow2"]};background:#1a1a1a;animation:pinPulse 2s ease-in-out infinite}}
-@keyframes pinPulse{{0%,100%{{box-shadow:0 0 50px {c["glow"]}, 0 0 80px {c["glow2"]}}50%{{box-shadow:0 0 70px {c["glow"]}, 0 0 120px {c["glow2"]}}}}}
+@keyframes pinPulse{{0%,100%{{box-shadow:0 0 50px {c["glow"]}, 0 0 80px {c["glow2"]}}}50%{{box-shadow:0 0 70px {c["glow"]}, 0 0 120px {c["glow2"]}}}}}
 .pin-ring img{{width:100%;height:100%;object-fit:cover}}
 .pin-label{{margin-top:14px;background:#fff;color:#111;font-weight:900;font-size:38px;letter-spacing:2px;padding:10px 28px;border-radius:10px;display:inline-block;box-shadow:0 6px 30px rgba(0,0,0,0.8)}}
 {LOGO_SVG}
@@ -249,60 +192,65 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 2: NEWS FRAME (numbered headline frame — PURE BLACK style matching reel_final.mp4)
+# SCENE 2: NEWS FRAME (numbered headline frame on map background)
 # ------------------------------------------------------------------
 def news_frame_html(number, headline, photo_b64, location, dur, theme="purple"):
     colors = {
-        "purple": {"glow": "#c026d3", "glow2": "#a21caf", "numColor": "#e879f9", "tagBg": "#c026d3"},
-        "red": {"glow": "#dc2626", "glow2": "#991b1b", "numColor": "#f87171", "tagBg": "#dc2626"},
-        "blue": {"glow": "#2563eb", "glow2": "#1e40af", "numColor": "#60a5fa", "tagBg": "#2563eb"},
+        "purple": {"glow": "#c026d3", "numColor": "#e879f9"},
+        "red": {"glow": "#dc2626", "numColor": "#f87171"},
+        "blue": {"glow": "#2563eb", "numColor": "#60a5fa"},
     }
     c = colors.get(theme, colors["purple"])
-    safe_headline = _html.escape(headline or "HEADLINE").upper()
-    safe_location = _html.escape(location or "INDIA").upper()
+    path_d, _, _ = get_country_path("India") or ("", None, None)
+    safe_headline = _html.escape(headline or "HEADLINE")
+    safe_location = _html.escape(location or "INDIA")
     
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
-html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
+html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
 #wrap{{position:absolute;inset:0}}
-
-/* Ambient purple glow behind the frame */
-#ambient{{position:absolute;top:420px;left:50%;transform:translateX(-50%);width:700px;height:700px;background:radial-gradient(circle, {c["glow"]}10 0%, transparent 70%);pointer-events:none;animation:ambPulse 4s ease-in-out infinite}}
-@keyframes ambPulse{{0%,100%{{opacity:0.5;transform:translateX(-50%) scale(1)}}50%{{opacity:0.8;transform:translateX(-50%) scale(1.15)}}}}
-
-/* Photo frame at top with yellow dashed border */
-#frame-wrap{{position:absolute;top:110px;left:50%;transform:translateX(-50%);width:940px;animation:frameIn 0.55s ease-out forwards;opacity:0}}
-@keyframes frameIn{{0%{{opacity:0;transform:translateX(-50%) translateY(-35px) scale(0.96)}}100%{{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}}}
-
-#photo-frame{{width:940px;height:530px;border:3px dashed #ffeb3b;border-radius:10px;overflow:hidden;position:relative;box-shadow:0 0 30px rgba(255,235,59,0.08), inset 0 0 40px rgba(0,0,0,0.4)}}
-#photo-frame::before{{content:'';position:absolute;inset:0;border:2px solid rgba(255,235,59,0.25);border-radius:8px;pointer-events:none}}
-#photo-frame img{{width:100%;height:100%;object-fit:cover;animation:imgZoom {dur:.2f}s ease-out forwards}}
-@keyframes imgZoom{{0%{{transform:scale(1.08)}}100%{{transform:scale(1)}}}}
-
-/* Connector line from frame to circle */
-#connector{{position:absolute;top:640px;left:50%;transform:translateX(-50%);width:3px;height:90px;background:linear-gradient(to bottom, #ffeb3b, rgba(255,235,59,0.3), transparent);animation:lineGrow 0.4s 0.25s ease-out forwards;transform-origin:top;transform:translateX(-50%) scaleY(0)}}
+#map-bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:grayscale(0.8) brightness(0.2) contrast(1.2)}}
+#vignette{{position:absolute;inset:0;background:radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.6) 100%);pointer-events:none}}
+#india-outline{{position:absolute;inset:0;width:100%;height:100%;opacity:0.3}}
+#india-outline path{{fill:none;stroke:#fff;stroke-width:1.5;filter:drop-shadow(0 0 8px {c["glow"]})}}
+#frame-wrap{{position:absolute;top:80px;left:50%;transform:translateX(-50%);width:920px;animation:frameIn 0.5s ease-out forwards;opacity:0}}
+@keyframes frameIn{{0%{{opacity:0;transform:translateX(-50%) translateY(-40px) scale(0.95)}}100%{{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}}}
+#photo-frame{{width:920px;height:520px;border:3px dashed #ffeb3b;border-radius:8px;overflow:hidden;position:relative;box-shadow:0 0 30px rgba(255,235,59,0.15), inset 0 0 30px rgba(0,0,0,0.3)}}
+#photo-frame::before{{content:'';position:absolute;inset:0;border:2px solid rgba(255,235,59,0.3);border-radius:6px;pointer-events:none}}
+#photo-frame img{{width:100%;height:100%;object-fit:cover}}
+#connector{{position:absolute;top:600px;left:50%;transform:translateX(-50%);width:4px;height:120px;background:linear-gradient(to bottom, #ffeb3b, transparent);animation:lineGrow 0.4s 0.3s ease-out forwards;transform-origin:top;transform:translateX(-50%) scaleY(0)}}
 @keyframes lineGrow{{0%{{transform:translateX(-50%) scaleY(0)}}100%{{transform:translateX(-50%) scaleY(1)}}}}
-
-/* Numbered circle */
-#num-circle{{position:absolute;top:720px;left:50%;transform:translateX(-50%);width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg, {c["numColor"]}, {c["glow"]});display:flex;align-items:center;justify-content:center;box-shadow:0 0 35px {c["glow"]}80, 0 0 70px {c["glow2"]}40, 0 4px 20px rgba(0,0,0,0.6);animation:circlePop 0.5s 0.45s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;z-index:10}}
+#num-circle{{position:absolute;top:700px;left:50%;transform:translateX(-50%);width:100px;height:100px;border-radius:50%;background:linear-gradient(135deg, {c["numColor"]}, {c["glow"]});display:flex;align-items:center;justify-content:center;box-shadow:0 0 40px {c["glow"]}, 0 0 80px rgba(0,0,0,0.5);animation:circlePop 0.5s 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;z-index:10}}
 @keyframes circlePop{{0%{{opacity:0;transform:translateX(-50%) scale(0)}}100%{{opacity:1;transform:translateX(-50%) scale(1)}}}}
-#num-circle span{{color:#fff;font-size:48px;font-weight:900;font-family:Arial Black, Arial, sans-serif;text-shadow:0 2px 10px rgba(0,0,0,0.5)}}
-
-/* Headline box */
-#headline-box{{position:absolute;top:840px;left:50%;transform:translateX(-50%);width:920px;background:rgba(10,10,10,0.92);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:34px 46px;animation:textIn 0.6s 0.6s ease-out forwards;opacity:0;backdrop-filter:blur(8px)}}
-@keyframes textIn{{0%{{opacity:0;transform:translateX(-50%) translateY(25px)}}100%{{opacity:1;transform:translateX(-50%) translateY(0)}}}}
-#headline-box h2{{color:#fff;font-size:44px;font-weight:800;line-height:1.25;text-transform:uppercase;letter-spacing:1.5px;text-shadow:0 2px 12px rgba(0,0,0,0.9)}}
-
-/* Location tag pill */
-#location-tag{{display:inline-block;margin-top:18px;background:linear-gradient(135deg, {c["tagBg"]}, {c["glow2"]});color:#fff;font-size:20px;font-weight:700;padding:8px 24px;border-radius:6px;letter-spacing:2.5px;text-transform:uppercase;box-shadow:0 4px 20px {c["glow"]}40}}
-
-/* Logo & handle */
+#num-circle span{{color:#fff;font-size:52px;font-weight:900;font-family:Arial Black;text-shadow:0 2px 10px rgba(0,0,0,0.5)}}
+#headline-box{{position:absolute;top:840px;left:50%;transform:translateX(-50%);width:900px;background:rgba(0,0,0,0.75);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:30px 40px;backdrop-filter:blur(10px);animation:textIn 0.6s 0.7s ease-out forwards;opacity:0}}
+@keyframes textIn{{0%{{opacity:0;transform:translateX(-50%) translateY(20px)}}100%{{opacity:1;transform:translateX(-50%) translateY(0)}}}}
+#headline-box h2{{color:#fff;font-size:42px;font-weight:800;line-height:1.3;text-transform:uppercase;letter-spacing:1px;text-shadow:0 2px 10px rgba(0,0,0,0.8)}}
+#location-tag{{display:inline-block;margin-top:16px;background:{c["glow"]};color:#fff;font-size:22px;font-weight:700;padding:6px 18px;border-radius:6px;letter-spacing:1px}}
 {LOGO_SVG}
 {HANDLE_HTML}
 </style></head><body>
 <div id="wrap">
-  <div id="ambient"></div>
+  <svg id="map-bg" viewBox="0 0 2160 1080" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <pattern id="noise" width="100" height="100" patternUnits="userSpaceOnUse">
+        <filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="3" stitchTiles="stitch"/></filter>
+        <rect width="100" height="100" filter="url(#n)" opacity="0.06"/>
+      </pattern>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="4" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <rect width="2160" height="1080" fill="#0a0a0a"/>
+    <rect width="2160" height="1080" fill="url(#noise)"/>
+    <path fill="none" stroke="#222" stroke-width="0.8" d="{path_d or ""}"/>
+  </svg>
+  <div id="vignette"></div>
+  <svg id="india-outline" viewBox="0 0 2160 1080" preserveAspectRatio="xMidYMid slice">
+    <path d="{path_d or ""}"/>
+  </svg>
   <div id="frame-wrap">
     <div id="photo-frame">
       <img src="data:image/jpeg;base64,{photo_b64 or ""}" alt=""/>
@@ -383,14 +331,7 @@ def location_highlight_html(country, location, photo_b64, overlay_text, dur, the
         "blue": {"glow": "#2563eb", "glow2": "#1e40af", "fill": "#1e3a5f"},
     }
     c = colors.get(theme, colors["red"])
-    
-    # Safe unpacking fallback logic
-    path_d, cx, cy = get_country_path(country)
-    if not path_d:
-        path_d, cx, cy = get_country_path("India")
-        if not path_d:
-            path_d, cx, cy = "", 78.0, 22.0
-            
+    path_d, cx, cy = get_country_path(country) or get_country_path("India") or ("", 78.0, 22.0)
     safe_text = _html.escape(overlay_text or location or "LOCATION")
     safe_loc = _html.escape(location or "LOCATION")
     
@@ -658,7 +599,7 @@ html,body{{width:1080px;height:1920px;background:{c["bg"]};overflow:hidden;font-
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 9: OUTRO (Instagram follow card — matches reel_final.mp4 outro exactly)
+# SCENE 9: OUTRO
 # ------------------------------------------------------------------
 def outro_html(dur=4):
     return f"""<!DOCTYPE html>
@@ -667,28 +608,28 @@ def outro_html(dur=4):
 html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
 #wrap{{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}}
 #particles{{position:absolute;inset:0;overflow:hidden}}
-.particle{{position:absolute;width:3px;height:3px;background:rgba(255,255,255,0.25);border-radius:50%;animation:float linear infinite}}
+.particle{{position:absolute;width:4px;height:4px;background:rgba(255,255,255,0.3);border-radius:50%;animation:float linear infinite}}
 @keyframes float{{0%{{transform:translateY(1920px) rotate(0deg);opacity:0}}10%{{opacity:1}}90%{{opacity:1}}100%{{transform:translateY(-100px) rotate(720deg);opacity:0}}}}
-#card{{width:820px;background:linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);border-radius:28px;padding:55px 45px;border:1px solid rgba(255,255,255,0.08);box-shadow:0 40px 100px rgba(0,0,0,0.8);animation:cardIn 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;z-index:10}}
+#card{{width:800px;background:linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);border-radius:30px;padding:60px 50px;border:1px solid rgba(255,255,255,0.08);box-shadow:0 40px 100px rgba(0,0,0,0.8);animation:cardIn 0.6s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;z-index:10}}
 @keyframes cardIn{{0%{{opacity:0;transform:scale(0.9) translateY(30px)}}100%{{opacity:1;transform:scale(1) translateY(0)}}}}
-#avatar-row{{display:flex;align-items:center;gap:28px;margin-bottom:45px}}
-#avatar{{width:140px;height:140px;border-radius:50%;background:linear-gradient(45deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5);padding:5px;animation:avatarGlow 3s ease-in-out infinite}}
+#avatar-row{{display:flex;align-items:center;gap:30px;margin-bottom:50px}}
+#avatar{{width:150px;height:150px;border-radius:50%;background:linear-gradient(45deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5);padding:6px;animation:avatarGlow 3s ease-in-out infinite}}
 @keyframes avatarGlow{{0%,100%{{box-shadow:0 0 30px rgba(214,41,118,0.3)}}50%{{box-shadow:0 0 60px rgba(214,41,118,0.6)}}}}
-#avatar-inner{{width:100%;height:100%;border-radius:50%;background:#000;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:48px;font-family:Arial}}
-#name{{color:#fff;font-size:46px;font-weight:800}}
-#handle{{color:#888;font-size:26px;margin-top:5px}}
+#avatar-inner{{width:100%;height:100%;border-radius:50%;background:#000;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:52px;font-family:Arial}}
+#name{{color:#fff;font-size:48px;font-weight:800}}
+#handle{{color:#888;font-size:28px;margin-top:6px}}
 #verified{{display:inline-flex;align-items:center;gap:8px;margin-top:10px}}
-#verified svg{{width:26px;height:26px}}
-#verified span{{color:#3897f0;font-size:22px;font-weight:700}}
-#btn-wrap{{position:relative;height:95px;margin-top:18px}}
-#follow-btn{{position:absolute;left:0;right:0;top:0;background:#3897ef;color:#fff;text-align:center;font-weight:800;font-size:36px;padding:26px;border-radius:14px;animation:btnFlip1 2.5s ease-in-out infinite}}
-@keyframes btnFlip1{{0%,40%{{opacity:1}}50%,90%{{opacity:0}}100%{{opacity:1}}}}
-#following-btn{{position:absolute;left:0;right:0;top:0;background:#eee;color:#555;text-align:center;font-weight:800;font-size:36px;padding:26px;border-radius:14px;opacity:0;animation:btnFlip2 2.5s ease-in-out infinite}}
-@keyframes btnFlip2{{0%,40%{{opacity:0}}50%,90%{{opacity:1}}100%{{opacity:0}}}}
-#ig-logo{{margin-top:55px;animation:logoIn 1s 0.8s ease-out forwards;opacity:0}}
+#verified svg{{width:28px;height:28px}}
+#verified span{{color:#3897f0;font-size:24px;font-weight:700}}
+#btn-wrap{{position:relative;height:100px;margin-top:20px}}
+#follow-btn{{position:absolute;left:0;right:0;top:0;background:#3897ef;color:#fff;text-align:center;font-weight:800;font-size:38px;padding:28px;border-radius:16px;animation:btnFlip1 2s ease-in-out infinite}}
+@keyframes btnFlip1{{0%,45%{{opacity:1}}55%,100%{{opacity:0}}}}
+#following-btn{{position:absolute;left:0;right:0;top:0;background:#eee;color:#555;text-align:center;font-weight:800;font-size:38px;padding:28px;border-radius:16px;opacity:0;animation:btnFlip2 2s ease-in-out infinite}}
+@keyframes btnFlip2{{0%,45%{{opacity:0}}55%,100%{{opacity:1}}}}
+#ig-logo{{margin-top:60px;animation:logoIn 1s 0.8s ease-out forwards;opacity:0}}
 @keyframes logoIn{{0%{{opacity:0;transform:scale(0.5)}}100%{{opacity:1;transform:scale(1)}}}}
-#ig-logo svg{{width:110px;height:110px}}
-#big-handle{{margin-top:25px;color:#fff;font-size:40px;font-weight:800;letter-spacing:2px;animation:handleIn 0.8s 1s ease-out forwards;opacity:0}}
+#ig-logo svg{{width:120px;height:120px}}
+#big-handle{{margin-top:30px;color:#fff;font-size:42px;font-weight:800;letter-spacing:2px;animation:handleIn 0.8s 1s ease-out forwards;opacity:0}}
 @keyframes handleIn{{0%{{opacity:0;transform:translateY(20px)}}100%{{opacity:1;transform:translateY(0)}}}}
 {LOGO_SVG}
 </style></head><body>
@@ -702,8 +643,6 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
     <div class="particle" style="left:85%;animation-duration:13s;animation-delay:2.5s"></div>
     <div class="particle" style="left:15%;animation-duration:16s;animation-delay:4s"></div>
     <div class="particle" style="left:90%;animation-duration:9s;animation-delay:1.5s"></div>
-    <div class="particle" style="left:5%;animation-duration:14s;animation-delay:3.5s"></div>
-    <div class="particle" style="left:60%;animation-duration:12s;animation-delay:5s"></div>
   </div>
   <div id="card">
     <div id="avatar-row">
@@ -783,3 +722,27 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 def map_html(country, pin, overlay_text, dur, lat=None, lon=None, topic_img=None):
     """Legacy wrapper - now uses the new dramatic map intro."""
     return map_intro_html(country, overlay_text, dur, theme="purple", topic_img=topic_img, pin=pin)
+
+def shot_card_html(shot_path, bg_path, source, dur):
+    """Legacy wrapper - now uses article card."""
+    return article_card_html(source, "BREAKING NEWS", "NEWS", _date_str(), bg_path, dur)
+
+def breaking_html(headline, sub, img_path, dur):
+    """Legacy wrapper - now uses breaking card."""
+    img_b64 = _b64_or_empty(img_path)
+    return breaking_card_html(headline, sub, img_b64, dur)
+
+def quote_html(text, person, timings, dur):
+    """Legacy wrapper - now uses quote card."""
+    return quote_card_html(text, person, dur)
+
+def outro_video():
+    """Generate outro video."""
+    cache = Path(settings.output_dir) / "outro.mp4"
+    if cache.exists():
+        return str(cache)
+    webm = record_html(outro_html(4), 4, "outro")
+    import imageio_ffmpeg as ioff, subprocess
+    subprocess.run([ioff.get_ffmpeg_exe(), "-y", "-i", webm, "-vf", "fps=30",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(cache)], check=True, capture_output=True)
+    return str(cache)
