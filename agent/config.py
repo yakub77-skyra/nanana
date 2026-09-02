@@ -18,8 +18,8 @@ class Settings(BaseSettings):
 
     tts_voice: str = "en-IN-PrabhatNeural"
     narration_lang: str = "hi"
-    elevenlabs_api_key: str = ""                       # P6.5: optional human-grade voice
-    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel; swap in your dashboard
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
 
     ig_handle: str = "@INDIAINLAST24HR"
     output_dir: str = "output"
