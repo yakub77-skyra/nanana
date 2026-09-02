@@ -423,9 +423,3 @@ def assemble(segments, final):
     cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", final]
     subprocess.run(cmd, check=True, capture_output=True)
     logger.success(f"FULL REEL: {final}")
-
-with open("/mnt/agents/output/agent/editor.py", "w", encoding="utf-8") as f:
-    f.write(editor_content)
-
-print("editor.py written successfully")
-print(f"Size: {os.path.getsize('/mnt/agents/output/agent/editor.py')} bytes")
