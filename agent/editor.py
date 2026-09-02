@@ -1,425 +1,318 @@
 
-import html as _html
-import os, subprocess, re
+import os, subprocess, json, re, math, random, textwrap, time
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
-import imageio_ffmpeg as ioff
-from loguru import logger
-from . import fx, tts, clips, media, scraper
+from typing import List, Optional
+
+import httpx
+from playwright.sync_api import sync_playwright
+
+from . import fx, media, scraper, tts
 from .config import settings
-from .schemas import Scene
+from .schemas import Scene, Script
 
-FF = ioff.get_ffmpeg_exe()
+RAW = Path(settings.output_dir).resolve() / "raw"
+OUT = Path(settings.output_dir).resolve() / "out"
 
-def _font(size=84):
-    for n in ("arial.ttf", "Arial.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"):
-        try:
-            return ImageFont.truetype(n, size)
-        except Exception:
-            continue
-    try:
-        return ImageFont.load_default(size)
-    except Exception:
-        return ImageFont.load_default()
+# ------------------------------------------------------------------
+# UTILITIES
+# ------------------------------------------------------------------
+def _ffmpeg(*args, check=True, **kw):
+    return subprocess.run(["ffmpeg", "-y", *args], capture_output=True, text=True, check=check, **kw)
 
-def _cut(s, n):
-    s = s or ""
-    if len(s) <= n:
-        return s
-    cut = s[:n]
-    cut = cut[:cut.rfind(" ")] or cut
-    words = cut.split()
-    bad = {"A","AN","THE","OF","TO","IN","FOR","WITH","ON","AT","S","AND","OR","AS","BY","FROM"}
-    while words and (words[-1].upper().strip(".") in bad or words[-1].upper().endswith("'S") or words[-1].endswith(",")):
-        words.pop()
-    return " ".join(words).strip()
+def _ffprobe(path):
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration,r_frame_rate,width,height",
+         "-of", "json", str(path)], capture_output=True, text=True
+    )
+    return json.loads(r.stdout) if r.returncode == 0 else {}
 
-def _probe_dur(src):
-    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)",
-                  subprocess.run([FF, "-i", src], capture_output=True, text=True).stderr)
-    return (int(m.group(1))*3600 + int(m.group(2))*60 + float(m.group(3))) if m else 4.0
+def _dur(path):
+    info = _ffprobe(path)
+    streams = info.get("streams", [])
+    if streams:
+        return float(streams[0].get("duration", 0))
+    r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+                       capture_output=True, text=True)
+    return float(r.stdout.strip()) if r.returncode == 0 else 0
 
-def _ensure_audio(src):
-    if "Audio:" in subprocess.run([FF, "-i", src], capture_output=True, text=True).stderr:
-        return src
-    out = src.replace(".mp4", "_a.mp4")
-    subprocess.run([FF, "-y", "-i", src, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                    "-c:v", "copy", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest", out],
-                   check=True, capture_output=True)
-    return out
+def _fps(path):
+    info = _ffprobe(path)
+    streams = info.get("streams", [])
+    if not streams:
+        return 30
+    rate = streams[0].get("r_frame_rate", "30/1")
+    num, den = map(int, rate.split("/"))
+    return num / den if den else 30
 
-def _polish(seg):
-    out = seg.replace(".mp4", "_p.mp4")
-    d = _probe_dur(seg)
-    subprocess.run([FF, "-y", "-i", seg,
-                    "-vf", f"fade=t=in:st=0:d=0.12,fade=t=out:st={max(d-0.15,0):.2f}:d=0.15",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "copy", out],
-                   check=True, capture_output=True)
-    return out
+def _polish(path, fade_in=0.8, fade_out=0.8):
+    d = _dur(path)
+    if d <= 0:
+        return path
+    fi = min(fade_in, d * 0.15)
+    fo = min(fade_out, d * 0.15)
+    tmp = str(path) + "_polished.mp4"
+    _ffmpeg("-i", str(path), "-vf", f"fade=t=in:st=0:d={fi},fade=t=out:st={max(0,d-fo)}:d={fo}",
+            "-c:a", "copy", tmp, check=False)
+    if os.path.exists(tmp):
+        os.replace(tmp, str(path))
+    return path
 
-def _is_bad_capture(seg):
-    try:
-        png = seg + "_qc.png"
-        subprocess.run([FF, "-y", "-i", seg, "-vf", "select=eq(n\\,12)", "-frames:v", "1", png],
-                       check=True, capture_output=True)
-        px = list(Image.open(png).convert("RGB").resize((54, 96)).getdata())
-        ratio = sum(1 for r, g, b in px if abs(r-128) < 14 and abs(g-128) < 14 and abs(b-128) < 14) / len(px)
-        if ratio > 0.35:
-            logger.warning(f"QC: {os.path.basename(seg)} gray {ratio:.0%} -> rejected")
-            return True
-    except Exception:
-        pass
-    return False
-
-def _seg_mux(visual, vo, out, dur, blur=False):
-    cmd = [FF, "-y", "-i", visual]
-    cmd += ["-i", vo["mp3"]] if vo else ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
-    if blur:
-        cmd += ["-filter_complex",
-                "[0:v]split[fg][bg];[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=18[b];"
-                "[fg]scale=1080:-2:flags=lanczos[f];[b][f]overlay=(W-w)/2:(H-h)/2,fps=30[v]",
-                "-map", "[v]", "-map", "1:a"]
-    else:
-        cmd += ["-vf", "scale=1080:1920:flags=lanczos,fps=30", "-map", "0:v", "-map", "1:a"]
-    cmd += ["-t", f"{dur:.2f}", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-ar", "44100", "-ac", "2", "-shortest", out]
-    subprocess.run(cmd, check=True, capture_output=True)
-
-def _slice(mp3, s, e, out):
-    subprocess.run([FF, "-y", "-ss", f"{s:.2f}", "-to", f"{e:.2f}", "-i", mp3, "-c", "copy", out],
-                   check=True, capture_output=True)
-
-def _norm(w):
-    return re.sub(r"[^a-z0-9\u0900-\u097F]+", "", w.lower())
-
-def _scene_windows(scenes, words):
-    if not words:
-        return [None] * len(scenes)
-    toks = [_norm(w) for w, _, _ in words]
-    wins, ptr = [], 0
-    for sc in scenes:
-        n = len(sc.narration.split()) if sc.narration else 0
-        if not n:
-            wins.append(None)
-            continue
-        needle = _norm(sc.narration.split()[0])
-        start = next((i for i in range(ptr, len(toks)) if toks[i] == needle), ptr)
-        end = min(start + n, len(toks))
-        s_t = words[start][1] if start < len(words) else 0
-        e_t = (words[end-1][2] if end <= len(words) else words[-1][2]) + 0.3
-        wins.append((s_t, e_t, [(w, t1-s_t, t2-s_t) for w, t1, t2 in words[start:end]]))
-        ptr = end
-    return wins
-
-def _get_bg_image(scene, i):
-    """Get background image for a scene."""
-    img = os.path.join(settings.output_dir, f"bg_{i}.jpg")
-    q = scene.clip_query or scene.breaking_image_query or scene.breaking_headline or "news"
-    ok = media.download(scene.image_url, img) if scene.image_url else None
-    if not ok and scene.article_link:
-        ok = media.download(scraper.main_image_url(scene.article_link), img)
-    if not ok:
-        ok = media.commons_image(q, img)
-    return img if ok else None
-
-def _get_photo_b64(scene, i):
-    """Get photo as base64 for HTML scenes."""
-    img_path = os.path.join(settings.output_dir, f"photo_{i}.jpg")
+def _get_photo_b64(scene: Scene, img_path: Path):
     q = scene.clip_query or scene.breaking_image_query or scene.breaking_headline or "news"
     ok = media.download(scene.image_url, img_path) if scene.image_url else None
     if not ok and scene.article_link:
         ok = media.download(scraper.main_image_url(scene.article_link), img_path)
     if not ok:
         ok = media.commons_image(q, img_path)
-    if ok and os.path.exists(img_path):
-        return fx._b64_or_empty(img_path)
+    if ok and img_path.exists():
+        return fx._b64(img_path)
     return ""
 
-def _get_footage_b64(scene, i, dur):
-    """Get footage frame as base64 for HTML scenes."""
-    # Try to get a clip frame
-    clip = clips.get_clip(scene.clip_query or "news", f"frame_{i}", min(dur, 3), scene.article_link)
-    if clip and os.path.exists(clip):
-        # Extract a frame
-        frame_path = os.path.join(settings.output_dir, f"frame_{i}.jpg")
-        subprocess.run([FF, "-y", "-i", clip, "-vf", "select=eq(n\\,5)", "-frames:v", "1", frame_path],
-                       check=True, capture_output=True)
-        if os.path.exists(frame_path):
-            return fx._b64_or_empty(frame_path)
-    # Fallback to image
-    return _get_photo_b64(scene, i)
-
-def render_all(scenes, take):
-    segs, seen_q = [], set()
-    for i, (sc, w) in enumerate(zip(scenes, _scene_windows(scenes, take["words"]))):
-        if sc.type == "quote" or sc.type == "quote_card":
-            key = (sc.quote_text or "").strip()[:100]
-            if not key or key in seen_q:
-                continue
-            seen_q.add(key)
-        try:
-            vo = None
-            if w:
-                sp = os.path.join(settings.output_dir, f"vo_s{i}.mp3")
-                _slice(take["mp3"], w[0], w[1], sp)
-                vo = {"mp3": sp, "words": w[2], "dur": w[1] - w[0] + 0.1}
-            segs.append(render_scene(sc, i, vo))
-        except Exception as e:
-            logger.error(f"Scene {i} ({sc.type}) failed -> skipped: {e}")
-    if not segs:
-        raise RuntimeError("All scenes failed")
-    return segs
-
-def render_scene(scene, i, vo=None):
-    if vo is None:
-        vo = tts.speak(scene.narration, f"s{i}") if scene.narration else None
-    dur = vo["dur"] if vo else 4.0
-    out = os.path.join(settings.output_dir, f"seg_{i}.mp4")
+# ------------------------------------------------------------------
+# RENDER SINGLE SCENE
+# ------------------------------------------------------------------
+def render_scene(scene: Scene, idx: int, tmp_dir: Path) -> Optional[Path]:
+    name = f"scene_{idx:02d}_{scene.type}"
+    out_path = tmp_dir / f"{name}.mp4"
     
-    # NEW SCENE TYPES (matching video style)
+    # ---- INTRO MARQUEE ----
+    if scene.type == "intro_marquee":
+        html = fx.intro_marquee_html(scene.text or scene.headline or "INDIA NEWS", scene.duration, theme=scene.theme)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.3, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
+    
+    # ---- MAP INTRO ----
     if scene.type == "map_intro":
-        country = scene.country or "India"
-        pin = scene.pin
-        overlay = scene.overlay_text or _cut(scene.headline or "INDIA NEWS", 44).upper()
-        theme = scene.theme or "purple"
-        topic_img = None
-        if pin:
-            timg = os.path.join(settings.output_dir, f"pin_{i}.jpg")
-            if media.commons_image((scene.clip_query or pin or "india")[:40], timg):
-                topic_img = timg
-        html = fx.map_intro_html(country, overlay, dur, theme=theme, topic_img=topic_img, pin=pin)
-        webm = fx.record_html(html, dur, f"map{i}")
-        _seg_mux(webm, vo, out, dur)
-    
-    elif scene.type == "news_frame":
-        photo_b64 = _get_photo_b64(scene, i)
-        html = fx.news_frame_html(
-            scene.frame_number or (i + 1),
-            scene.headline or scene.breaking_headline or "HEADLINE",
-            photo_b64,
-            scene.location or scene.pin or "INDIA",
-            dur,
-            theme=scene.theme or "purple"
+        html = fx.map_intro_html(
+            scene.country or "India",
+            scene.overlay_text or scene.headline or "INDIA NEWS",
+            scene.duration,
+            theme=scene.theme,
+            topic_img=scene.topic_img_path,
+            pin=scene.pin
         )
-        webm = fx.record_html(html, dur, f"nf{i}")
-        _seg_mux(webm, vo, out, dur)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.5, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
     
-    elif scene.type == "article_card":
-        bg_img = _get_bg_image(scene, i)
-        bg_b64 = fx._b64_or_empty(bg_img) if bg_img else ""
-        html = fx.article_card_html(
-            scene.masthead or scene.breaking_sub or "NEWS SOURCE",
+    # ---- NEWS FRAME (numbered headline) ----
+    if scene.type == "news_frame":
+        img = tmp_dir / f"{name}_photo.jpg"
+        b64 = _get_photo_b64(scene, img)
+        html = fx.news_frame_html(
+            scene.number or 1,
             scene.headline or scene.breaking_headline or "HEADLINE",
-            scene.category or "NEWS",
-            scene.date_str or "",
-            bg_b64,
-            dur,
+            b64,
+            scene.location or scene.country or "INDIA",
+            scene.duration,
+            theme=scene.theme
+        )
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.5, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
+    
+    # ---- ARTICLE CARD ----
+    if scene.type == "article_card":
+        img = tmp_dir / f"{name}_bg.jpg"
+        b64 = _get_photo_b64(scene, img)
+        html = fx.article_card_html(
+            scene.masthead,
+            scene.headline,
+            scene.category,
+            scene.date_str,
+            b64,
+            scene.duration,
             source_color=scene.source_color or "#c00"
         )
-        webm = fx.record_html(html, dur, f"ac{i}")
-        _seg_mux(webm, vo, out, dur)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.5, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
     
-    elif scene.type == "location_highlight":
-        photo_b64 = _get_photo_b64(scene, i)
+    # ---- LOCATION HIGHLIGHT ----
+    if scene.type == "location_highlight":
+        img = tmp_dir / f"{name}_photo.jpg"
+        b64 = _get_photo_b64(scene, img)
         html = fx.location_highlight_html(
             scene.country or "India",
-            scene.pin or scene.location or "LOCATION",
-            photo_b64,
-            scene.overlay_text or scene.headline or "",
-            dur,
-            theme=scene.theme or "red"
+            scene.location,
+            b64,
+            scene.overlay_text or scene.headline,
+            scene.duration,
+            theme=scene.theme
         )
-        webm = fx.record_html(html, dur, f"lh{i}")
-        _seg_mux(webm, vo, out, dur)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.5, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
     
-    elif scene.type == "disaster_dramatic":
-        footage_b64 = _get_footage_b64(scene, i, dur)
+    # ---- DISASTER DRAMATIC ----
+    if scene.type == "disaster_dramatic":
+        img = tmp_dir / f"{name}_footage.jpg"
+        b64 = _get_photo_b64(scene, img)
         html = fx.disaster_dramatic_html(
-            scene.breaking_headline or scene.headline or "BREAKING",
-            scene.sub_text or scene.breaking_sub or "",
-            footage_b64,
-            dur
+            scene.headline,
+            scene.sub_text,
+            b64,
+            scene.duration
         )
-        webm = fx.record_html(html, dur, f"dd{i}")
-        _seg_mux(webm, vo, out, dur)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.3, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
     
-    elif scene.type == "footage_highlight":
-        footage_b64 = _get_footage_b64(scene, i, dur)
+    # ---- FOOTAGE HIGHLIGHT ----
+    if scene.type == "footage_highlight":
+        img = tmp_dir / f"{name}_footage.jpg"
+        b64 = _get_photo_b64(scene, img)
         html = fx.footage_highlight_html(
-            footage_b64,
-            scene.circle_x or 540,
-            scene.circle_y or 960,
-            scene.circle_r or 200,
-            scene.label_text or "",
-            dur
+            b64,
+            circle_x=scene.circle_x or 540,
+            circle_y=scene.circle_y or 960,
+            circle_r=scene.circle_radius or 200,
+            label_text=scene.label_text or "",
+            dur=scene.duration
         )
-        webm = fx.record_html(html, dur, f"fh{i}")
-        _seg_mux(webm, vo, out, dur)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.3, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
     
-    elif scene.type == "breaking_card":
-        img_b64 = _get_photo_b64(scene, i)
+    # ---- BREAKING CARD ----
+    if scene.type == "breaking_card":
+        img = tmp_dir / f"{name}_img.jpg"
+        b64 = _get_photo_b64(scene, img)
         html = fx.breaking_card_html(
-            scene.breaking_headline or scene.headline or "BREAKING NEWS",
-            scene.breaking_sub or "",
-            img_b64,
-            dur,
-            source=scene.masthead or ""
+            scene.headline,
+            scene.sub_text,
+            b64,
+            scene.duration,
+            source=scene.source or ""
         )
-        webm = fx.record_html(html, dur, f"bc{i}")
-        _seg_mux(webm, vo, out, dur)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.3, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
     
-    elif scene.type == "quote_card":
+    # ---- QUOTE CARD ----
+    if scene.type == "quote_card":
         html = fx.quote_card_html(
-            scene.quote_text or "",
-            scene.person or "",
-            dur,
-            theme=scene.theme or "purple"
+            scene.quote_text or scene.text,
+            scene.quote_person or scene.headline,
+            scene.duration,
+            theme=scene.theme
         )
-        webm = fx.record_html(html, dur, f"qc{i}")
-        _seg_mux(webm, vo, out, dur)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.5, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
     
-    elif scene.type == "stat_overlay":
-        bg_b64 = _get_footage_b64(scene, i) or ""
+    # ---- STAT OVERLAY ----
+    if scene.type == "stat_overlay":
+        img = tmp_dir / f"{name}_bg.jpg"
+        b64 = _get_photo_b64(scene, img)
         html = fx.stat_overlay_html(
-            scene.stat_text or "0",
-            scene.stat_label or "",
-            bg_b64,
-            dur,
-            theme=scene.theme or "purple"
+            scene.stat_text,
+            scene.stat_label,
+            b64,
+            scene.duration,
+            theme=scene.theme
         )
-        webm = fx.record_html(html, dur, f"so{i}")
-        _seg_mux(webm, vo, out, dur)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.5, fade_out=0.5)
+        os.replace(raw, out_path)
+        return out_path
     
-    # LEGACY SCENE TYPES (backward compatibility)
-    elif scene.type == "map":
-        lat, lon, geo_country = (scraper.geocode(scene.pin) if scene.pin else (None, None, ""))
-        country = scene.country or "India"
-        use = False
-        if geo_country and fx.has_country(geo_country):
-            country, use = geo_country, True
-        if not fx.has_country(country):
-            country, use = "India", False
-        timg = os.path.join(settings.output_dir, f"pin_{i}.jpg")
-        timg = timg if media.commons_image((scene.clip_query or scene.pin or "india")[:40], timg) else None
-        if not os.path.exists(os.path.join(settings.output_dir, "terrain.jpg")):
-            scraper.commons_texture(os.path.join(settings.output_dir, "terrain.jpg"))
-        webm = fx.record_html(fx.map_html(country, scene.pin, _cut(scene.overlay_text, 44).upper(),
-                                          dur, lat=lat if use else None, lon=lon if use else None,
-                                          topic_img=timg), dur, f"map{i}")
-        _seg_mux(webm, vo, out, dur)
+    # ---- OUTRO ----
+    if scene.type == "outro":
+        html = fx.outro_html(scene.duration)
+        raw = fx.record_html(html, scene.duration, name)
+        _polish(raw, fade_in=0.5, fade_out=0.8)
+        os.replace(raw, out_path)
+        return out_path
     
-    elif scene.type == "clip":
-        blurred = True
-        clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur, scene.article_link)
-        if not clip and scene.article_link:
-            cand = scraper.mobile_record(scene.article_link, f"broll{i}", dur, scroll=True)
-            if cand and not _is_bad_capture(cand):
-                clip, blurred = cand, False
-        if not clip:
-            clip = scraper.commons_video(scene.clip_query or "news",
-                                         os.path.join(settings.output_dir, f"cv_{i}.mp4"))
-        if not clip:
-            raise RuntimeError("no REAL footage")
-        if scene.red_circle or scene.stat_text:
-            ov = os.path.join(settings.output_dir, f"ov_{i}.png")
-            _overlay_png(scene, ov)
-            tmp = os.path.join(settings.output_dir, f"clipov_{i}.mp4")
-            subprocess.run([FF, "-y", "-i", clip, "-i", ov, "-filter_complex", "[0:v][1:v]overlay=0:0",
-                            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", tmp],
-                           check=True, capture_output=True)
-            clip = tmp
-        _seg_mux(clip, vo, out, dur, blur=blurred)
-    
-    elif scene.type == "article":
-        webm = None
-        if scene.article_link and vo:
-            cand = scraper.mobile_record(scene.article_link, f"live{i}", dur,
-                                         delays=[w[1] + 0.4 for w in vo["words"]])
-            if cand and not _is_bad_capture(cand):
-                webm = cand
-        if webm:
-            _seg_mux(webm, vo, out, dur)
-        else:
-            from .renderer import CARD
-            words = (scene.headline or "").split()
-            delays = ([w[1] + 0.3 for w in vo["words"]][:len(words)] if vo else [0.3 + j*0.4 for j in range(len(words))])
-            while len(delays) < len(words):
-                delays.append((delays[-1] + 0.4) if delays else 0.3)
-            sp = "".join(f'<span class="w"><i style="animation-delay:{d:.2f}s"></i><b>{_html.escape(w)}</b></span>'
-                         for w, d in zip(words, delays))
-            page = (CARD.replace("__HANDLE__", settings.ig_handle)
-                        .replace("__MASTHEAD__", (scene.masthead or "THE TIMES OF INDIA").upper())
-                        .replace("__HEADLINE__", sp).replace("__META__", scene.masthead or "")
-                        .replace("__BIG__", scene.stat_text or ""))
-            _seg_mux(fx.record_html(page, dur, f"art{i}"), vo, out, dur)
-    
-    elif scene.type == "quote":
-        _seg_mux(fx.record_html(fx.quote_html(scene.quote_text or "", scene.person or "",
-                                              vo["words"] if vo else [], dur), dur, f"q{i}"), vo, out, dur)
-    
-    elif scene.type == "breaking":
-        head = _cut(scene.breaking_headline or "", 60).upper()
-        bg = _get_bg_image(scene, i)
-        shot = scraper.page_screenshot(scene.article_link) if scene.article_link else None
-        if shot and bg:
-            _seg_mux(fx.record_html(fx.shot_card_html(shot, bg, scene.breaking_sub or "", dur),
-                                    dur, f"b{i}"), vo, out, dur)
-        else:
-            img = bg or os.path.join(settings.output_dir, f"br_{i}.jpg")
-            if not bg:
-                ok = media.download(scene.image_url, img) if scene.image_url else None
-                if not ok:
-                    ok = clips.get_image(scene.breaking_image_query or head, img)
-                if not ok:
-                    Image.new("RGB", (1080, 1350), (18, 18, 18)).save(img)
-            _seg_mux(fx.record_html(fx.breaking_html(head, scene.breaking_sub, img, dur),
-                                    dur, f"b{i}"), vo, out, dur)
-    
-    logger.success(f"Scene {i} ({scene.type}) rendered")
-    return out
+    return None
 
-def _overlay_png(scene, path):
-    img = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    if scene.stat_text:
-        txt, size = scene.stat_text.upper(), 84
-        f = _font(size)
-        while True:
-            bb = d.textbbox((0, 0), txt, font=f)
-            if (bb[2]-bb[0]) <= 900 or size <= 40:
-                break
-            size -= 6
-            f = _font(size)
-        d.text((540, 1560), txt, font=f, fill=(255,255,255,255),
-               stroke_width=max(2, size//20), stroke_fill=(0,0,0,255), anchor="mm")
-        bb = d.textbbox((540, 1560), txt, font=f, anchor="mm")
-        d.ellipse([bb[0]-35, bb[1]-28, bb[2]+35, bb[3]+28], outline=(220,0,0,255), width=10)
-        d.line([bb[2]+140, bb[1]-160, bb[2]+40, bb[1]-20], fill=(220,0,0,255), width=9)
-        d.polygon([(bb[2]+40, bb[1]-20), (bb[2]+70, bb[1]-52), (bb[2]+78, bb[1]-8)], fill=(220,0,0,255))
-    if scene.red_circle:
-        d.ellipse([240, 660, 840, 1260], outline=(220,0,0,255), width=14)
-    img.save(path)
-
-def assemble(segments, final):
-    if len(segments) < 2:
-        raise RuntimeError("Only outro rendered")
-    segments = [_polish(_ensure_audio(s)) for s in segments]
-    listf = os.path.join(settings.output_dir, "segs.txt")
-    with open(listf, "w", encoding="utf-8") as f:
-        f.write("\n".join(f"file '{Path(s).resolve().as_posix()}'" for s in segments))
-    joined = os.path.join(settings.output_dir, "joined.mp4")
-    subprocess.run([FF, "-y", "-f", "concat", "-safe", "0", "-i", listf,
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30",
-                    "-c:a", "aac", "-ar", "44100", "-ac", "2", joined], check=True, capture_output=True)
-    T = _probe_dur(joined)
-    music = os.path.join("assets", "music.mp3")
-    cmd = [FF, "-y", "-i", joined]
-    if os.path.exists(music):
-        cmd += ["-i", music, "-filter_complex", "[1:a]volume=0.12[m];[0:a][m]amix=inputs=2:duration=first[a]",
-                "-map", "0:v", "-map", "[a]"]
+# ------------------------------------------------------------------
+# ASSEMBLE
+# ------------------------------------------------------------------
+def assemble(clips: List[Path], out_path: Path, music_path: Optional[Path] = None, target_duration: Optional[float] = None):
+    if not clips:
+        return None
+    
+    concat_list = out_path.parent / "concat_list.txt"
+    with open(concat_list, "w") as f:
+        for c in clips:
+            f.write(f"file '{c.resolve()}'\n")
+    
+    tmp_vid = str(out_path) + "_tmp.mp4"
+    _ffmpeg("-f", "concat", "-safe", "0", "-i", str(concat_list), "-c", "copy", tmp_vid, check=False)
+    
+    if not os.path.exists(tmp_vid):
+        return None
+    
+    vid_dur = _dur(tmp_vid)
+    
+    # Add music if available
+    if music_path and music_path.exists():
+        music_dur = _dur(music_path)
+        loops = math.ceil(vid_dur / music_dur) if music_dur > 0 else 1
+        music_looped = str(out_path.parent / "music_looped.mp3")
+        _ffmpeg("-stream_loop", str(loops - 1), "-i", str(music_path), "-t", str(vid_dur),
+                "-c:a", "libmp3lame", "-q:a", "2", music_looped, check=False)
+        
+        final_tmp = str(out_path) + "_final.mp4"
+        _ffmpeg("-i", tmp_vid, "-i", music_looped, "-shortest",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                "-af", "volume=0.25", final_tmp, check=False)
+        
+        if os.path.exists(final_tmp):
+            os.replace(final_tmp, str(out_path))
+        if os.path.exists(music_looped):
+            os.remove(music_looped)
     else:
-        cmd += ["-map", "0:v", "-map", "0:a"]
-    cmd += ["-vf", f"fade=t=in:st=0:d=0.4,fade=t=out:st={max(T-0.6,0):.2f}:d=0.6"]
-    cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart", final]
-    subprocess.run(cmd, check=True, capture_output=True)
-    logger.success(f"FULL REEL: {final}")
+        os.replace(tmp_vid, str(out_path))
+    
+    if os.path.exists(concat_list):
+        os.remove(concat_list)
+    if os.path.exists(tmp_vid):
+        os.remove(tmp_vid)
+    
+    return out_path
+
+# ------------------------------------------------------------------
+# BUILD
+# ------------------------------------------------------------------
+def build(script: Script, out_name: str = "reel") -> Path:
+    RAW.mkdir(parents=True, exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    tmp_dir = RAW / f"build_{out_name}_{int(time.time())}"
+    tmp_dir.mkdir(exist_ok=True)
+    
+    clips: List[Path] = []
+    
+    for idx, scene in enumerate(script.scenes):
+        print(f"  [editor] Rendering scene {idx+1}/{len(script.scenes)}: {scene.type}")
+        path = render_scene(scene, idx, tmp_dir)
+        if path and path.exists():
+            clips.append(path)
+    
+    if not clips:
+        raise RuntimeError("No clips rendered")
+    
+    # Download music if specified
+    music_path = None
+    if script.music_query:
+        music_path = tmp_dir / "bgm.mp3"
+        media.download(script.music_query, music_path)
+        if not music_path.exists():
+            music_path = None
+    
+    out_path = OUT / f"{out_name}.mp4"
+    assemble(clips, out_path, music_path=music_path, target_duration=script.total_duration or None)
+    
+    return out_path
