@@ -106,39 +106,6 @@ HANDLE_HTML = """<div id="handle" style="position:fixed;top:28px;right:28px;z-in
 </div>"""
 
 # ------------------------------------------------------------------
-# SCENE 0: MARQUEE INTRO (scrolling text on pure black)
-# ------------------------------------------------------------------
-def marquee_intro_html(marquee_text, dur, theme="purple"):
-    colors = {
-        "purple": {"glow": "#c026d3", "accent": "#e879f9"},
-        "red": {"glow": "#dc2626", "accent": "#f87171"},
-        "blue": {"glow": "#2563eb", "accent": "#60a5fa"},
-    }
-    c = colors.get(theme, colors["purple"])
-    safe_text = _html.escape(marquee_text or "INDIA IN LAST 24 HOURS").upper()
-    display_text = safe_text + " &nbsp;&nbsp;&nbsp; " + safe_text + " &nbsp;&nbsp;&nbsp; " + safe_text
-    
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><style>
-*{{margin:0;padding:0;box-sizing:border-box}}
-html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
-#wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}}
-#marquee-track{{position:absolute;top:42%;left:0;width:100%;overflow:hidden;white-space:nowrap}}
-#marquee-text{{display:inline-block;color:#fff;font-size:72px;font-weight:900;letter-spacing:4px;text-transform:uppercase;text-shadow:0 0 40px {c["glow"]}, 0 4px 20px rgba(0,0,0,0.9);animation:scroll {dur:.2f}s linear forwards;transform:translateX(1080px)}}
-@keyframes scroll{{0%{{transform:translateX(1080px)}}100%{{transform:translateX(-100%)}}}}
-#glow-line{{position:absolute;top:50%;left:0;width:100%;height:3px;background:linear-gradient(90deg, transparent, {c["glow"]}, transparent);opacity:0.6}}
-{LOGO_SVG}
-{HANDLE_HTML}
-</style></head><body>
-<div id="wrap">
-  <div id="glow-line"></div>
-  <div id="marquee-track">
-    <div id="marquee-text">{display_text}</div>
-  </div>
-</div>
-</body></html>"""
-
-# ------------------------------------------------------------------
 # SCENE 1: MAP INTRO (3D satellite map with glowing country)
 # ------------------------------------------------------------------
 def map_intro_html(country, overlay_text, dur, theme="purple", topic_img=None, pin=None):
@@ -225,58 +192,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 2: ROUNDUP FRAME (numbered headline frame -- PURE BLACK BG)
-# Matches the reference video style exactly.
-# ------------------------------------------------------------------
-def roundup_frame_html(number, headline, photo_b64, location, dur, theme="purple"):
-    colors = {
-        "purple": {"glow": "#c026d3", "numColor": "#e879f9", "tagBg": "#c026d3"},
-        "red": {"glow": "#dc2626", "numColor": "#f87171", "tagBg": "#dc2626"},
-        "blue": {"glow": "#2563eb", "numColor": "#60a5fa", "tagBg": "#2563eb"},
-    }
-    c = colors.get(theme, colors["purple"])
-    safe_headline = _html.escape(headline or "HEADLINE")
-    safe_location = _html.escape(location or "INDIA")
-    
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><style>
-*{{margin:0;padding:0;box-sizing:border-box}}
-html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
-#wrap{{position:absolute;inset:0}}
-#frame-wrap{{position:absolute;top:80px;left:50%;transform:translateX(-50%);width:920px;animation:frameIn 0.5s ease-out forwards;opacity:0}}
-@keyframes frameIn{{0%{{opacity:0;transform:translateX(-50%) translateY(-40px) scale(0.95)}}100%{{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}}}
-#photo-frame{{width:920px;height:520px;border:3px dashed #ffeb3b;border-radius:8px;overflow:hidden;position:relative;box-shadow:0 0 30px rgba(255,235,59,0.15), inset 0 0 30px rgba(0,0,0,0.3)}}
-#photo-frame::before{{content:'';position:absolute;inset:0;border:2px solid rgba(255,235,59,0.3);border-radius:6px;pointer-events:none}}
-#photo-frame img{{width:100%;height:100%;object-fit:cover}}
-#connector{{position:absolute;top:600px;left:50%;transform:translateX(-50%);width:4px;height:120px;background:linear-gradient(to bottom, #ffeb3b, transparent);animation:lineGrow 0.4s 0.3s ease-out forwards;transform-origin:top;transform:translateX(-50%) scaleY(0)}}
-@keyframes lineGrow{{0%{{transform:translateX(-50%) scaleY(0)}}100%{{transform:translateX(-50%) scaleY(1)}}}}
-#num-circle{{position:absolute;top:700px;left:50%;transform:translateX(-50%);width:100px;height:100px;border-radius:50%;background:linear-gradient(135deg, {c["numColor"]}, {c["glow"]});display:flex;align-items:center;justify-content:center;box-shadow:0 0 40px {c["glow"]}, 0 0 80px rgba(0,0,0,0.5);animation:circlePop 0.5s 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;z-index:10}}
-@keyframes circlePop{{0%{{opacity:0;transform:translateX(-50%) scale(0)}}100%{{opacity:1;transform:translateX(-50%) scale(1)}}}}
-#num-circle span{{color:#fff;font-size:52px;font-weight:900;font-family:Arial Black;text-shadow:0 2px 10px rgba(0,0,0,0.5)}}
-#headline-box{{position:absolute;top:840px;left:50%;transform:translateX(-50%);width:900px;background:rgba(0,0,0,0.75);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:30px 40px;backdrop-filter:blur(10px);animation:textIn 0.6s 0.7s ease-out forwards;opacity:0}}
-@keyframes textIn{{0%{{opacity:0;transform:translateX(-50%) translateY(20px)}}100%{{opacity:1;transform:translateX(-50%) translateY(0)}}}}
-#headline-box h2{{color:#fff;font-size:42px;font-weight:800;line-height:1.3;text-transform:uppercase;letter-spacing:1px;text-shadow:0 2px 10px rgba(0,0,0,0.8)}}
-#location-tag{{display:inline-block;margin-top:16px;background:{c["tagBg"]};color:#fff;font-size:22px;font-weight:700;padding:6px 18px;border-radius:6px;letter-spacing:1px}}
-{LOGO_SVG}
-{HANDLE_HTML}
-</style></head><body>
-<div id="wrap">
-  <div id="frame-wrap">
-    <div id="photo-frame">
-      <img src="data:image/jpeg;base64,{photo_b64 or ""}" alt=""/>
-    </div>
-  </div>
-  <div id="connector"></div>
-  <div id="num-circle"><span>{number}</span></div>
-  <div id="headline-box">
-    <h2>{safe_headline}</h2>
-    <div id="location-tag">{safe_location}</div>
-  </div>
-</div>
-</body></html>"""
-
-# ------------------------------------------------------------------
-# SCENE 3: NEWS FRAME (numbered headline frame on map background)
+# SCENE 2: NEWS FRAME (numbered headline frame on map background)
 # ------------------------------------------------------------------
 def news_frame_html(number, headline, photo_b64, location, dur, theme="purple"):
     colors = {
@@ -350,7 +266,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 4: ARTICLE CARD (floating article card over blurred background)
+# SCENE 3: ARTICLE CARD (floating article card over blurred background)
 # ------------------------------------------------------------------
 def article_card_html(masthead, headline, category, date_str, bg_b64, dur, source_color="#c00"):
     safe_masthead = _html.escape(masthead or "NEWS SOURCE").upper()
@@ -406,7 +322,7 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 5: LOCATION HIGHLIGHT
+# SCENE 4: LOCATION HIGHLIGHT
 # ------------------------------------------------------------------
 def location_highlight_html(country, location, photo_b64, overlay_text, dur, theme="red"):
     colors = {
@@ -478,7 +394,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 6: DISASTER DRAMATIC
+# SCENE 5: DISASTER DRAMATIC
 # ------------------------------------------------------------------
 def disaster_dramatic_html(headline, sub_text, footage_b64, dur):
     safe_headline = _html.escape(headline or "BREAKING").upper()
@@ -522,7 +438,7 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 7: FOOTAGE HIGHLIGHT (red circle emphasis)
+# SCENE 6: FOOTAGE HIGHLIGHT (red circle emphasis)
 # ------------------------------------------------------------------
 def footage_highlight_html(footage_b64, circle_x=540, circle_y=960, circle_r=200, label_text="", dur=5):
     safe_label = _html.escape(label_text or "")
@@ -578,7 +494,7 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 8: BREAKING CARD
+# SCENE 7: BREAKING CARD
 # ------------------------------------------------------------------
 def breaking_card_html(headline, sub, img_b64, dur, source=""):
     safe_headline = _html.escape(headline or "BREAKING NEWS").upper()
@@ -633,7 +549,7 @@ html,body{{width:1080px;height:1920px;background:#111;overflow:hidden;font-famil
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 9: QUOTE CARD
+# SCENE 8: QUOTE CARD
 # ------------------------------------------------------------------
 def quote_card_html(quote_text, person, dur, theme="purple"):
     colors = {
@@ -683,7 +599,7 @@ html,body{{width:1080px;height:1920px;background:{c["bg"]};overflow:hidden;font-
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 10: OUTRO
+# SCENE 9: OUTRO
 # ------------------------------------------------------------------
 def outro_html(dur=4):
     return f"""<!DOCTYPE html>
@@ -756,3 +672,77 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
   <div id="big-handle">@INDIAINLAST24HR</div>
 </div>
 </body></html>"""
+
+# ------------------------------------------------------------------
+# SCENE 10: STAT OVERLAY
+# ------------------------------------------------------------------
+def stat_overlay_html(stat_text, label, bg_b64, dur, theme="purple"):
+    colors = {
+        "purple": {"glow": "#c026d3", "accent": "#e879f9"},
+        "red": {"glow": "#dc2626", "accent": "#f87171"},
+        "blue": {"glow": "#2563eb", "accent": "#60a5fa"},
+        "gold": {"glow": "#f59e0b", "accent": "#fbbf24"},
+    }
+    c = colors.get(theme, colors["purple"])
+    safe_stat = _html.escape(stat_text or "0")
+    safe_label = _html.escape(label or "")
+    
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
+#wrap{{position:absolute;inset:0}}
+#bg{{position:absolute;inset:-60px;width:1200px;height:2040px;object-fit:cover;filter:blur(15px) brightness(0.25) saturate(0.6);animation:kb {dur:.2f}s linear forwards}}
+@keyframes kb{{from{{transform:scale(1)}}to{{transform:scale(1.1)}}}}
+#vignette{{position:absolute;inset:0;background:radial-gradient(ellipse at center, transparent 20%, rgba(0,0,0,0.6) 100%);pointer-events:none}}
+#stat-wrap{{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;animation:statIn 0.7s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0}}
+@keyframes statIn{{0%{{opacity:0;transform:translate(-50%,-50%) scale(0.5)}}100%{{opacity:1;transform:translate(-50%,-50%) scale(1)}}}}
+#stat-circle{{width:500px;height:500px;border-radius:50%;background:linear-gradient(135deg, rgba(0,0,0,0.8), rgba(0,0,0,0.6));border:4px solid {c["glow"]};display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 0 80px {c["glow"]}40, 0 0 150px {c["glow"]}20, inset 0 0 60px {c["glow"]}10;animation:circlePulse 3s ease-in-out infinite}}
+@keyframes circlePulse{{0%,100%{{box-shadow:0 0 80px {c["glow"]}40, 0 0 150px {c["glow"]}20, inset 0 0 60px {c["glow"]}10}}50%{{box-shadow:0 0 120px {c["glow"]}60, 0 0 200px {c["glow"]}30, inset 0 0 80px {c["glow"]}20}}}}
+#stat-num{{color:#fff;font-size:120px;font-weight:900;font-family:Arial Black;text-shadow:0 0 40px {c["glow"]}, 0 4px 20px rgba(0,0,0,0.8);line-height:1}}
+#stat-label{{color:{c["accent"]};font-size:36px;font-weight:800;margin-top:16px;letter-spacing:3px;text-transform:uppercase}}
+{LOGO_SVG}
+{HANDLE_HTML}
+</style></head><body>
+<div id="wrap">
+  <img id="bg" src="data:image/jpeg;base64,{bg_b64 or ""}" alt=""/>
+  <div id="vignette"></div>
+  <div id="stat-wrap">
+    <div id="stat-circle">
+      <div id="stat-num">{safe_stat}</div>
+      <div id="stat-label">{safe_label}</div>
+    </div>
+  </div>
+</div>
+</body></html>"""
+
+# ------------------------------------------------------------------
+# LEGACY COMPATIBILITY
+# ------------------------------------------------------------------
+def map_html(country, pin, overlay_text, dur, lat=None, lon=None, topic_img=None):
+    """Legacy wrapper - now uses the new dramatic map intro."""
+    return map_intro_html(country, overlay_text, dur, theme="purple", topic_img=topic_img, pin=pin)
+
+def shot_card_html(shot_path, bg_path, source, dur):
+    """Legacy wrapper - now uses article card."""
+    return article_card_html(source, "BREAKING NEWS", "NEWS", _date_str(), bg_path, dur)
+
+def breaking_html(headline, sub, img_path, dur):
+    """Legacy wrapper - now uses breaking card."""
+    img_b64 = _b64_or_empty(img_path)
+    return breaking_card_html(headline, sub, img_b64, dur)
+
+def quote_html(text, person, timings, dur):
+    """Legacy wrapper - now uses quote card."""
+    return quote_card_html(text, person, dur)
+
+def outro_video():
+    """Generate outro video."""
+    cache = Path(settings.output_dir) / "outro.mp4"
+    if cache.exists():
+        return str(cache)
+    webm = record_html(outro_html(4), 4, "outro")
+    import imageio_ffmpeg as ioff, subprocess
+    subprocess.run([ioff.get_ffmpeg_exe(), "-y", "-i", webm, "-vf", "fps=30",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(cache)], check=True, capture_output=True)
+    return str(cache)
