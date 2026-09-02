@@ -182,7 +182,10 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 .pin-wrap{{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);text-align:center;animation:pinPop 0.6s 0.8s ease-out forwards;opacity:0}}
 @keyframes pinPop{{0%{{opacity:0;transform:translate(-50%,-50%) scale(0.5)}}100%{{opacity:1;transform:translate(-50%,-50%) scale(1)}}}}
 .pin-ring{{width:180px;height:180px;border-radius:50%;border:4px solid #fff;overflow:hidden;margin:0 auto;box-shadow:0 0 50px {c["glow"]}, 0 0 80px {c["glow2"]};background:#1a1a1a;animation:pinPulse 2s ease-in-out infinite}}
-@keyframes pinPulse{{0%,100%{{box-shadow:0 0 50px {c["glow"]}, 0 0 80px {c["glow2"]}}}50%{{box-shadow:0 0 70px {c["glow"]}, 0 0 120px {c["glow2"]}}}}}
+@keyframes pinPulse{{
+  0%, 100% {{ box-shadow: 0 0 50px {c["glow"]}, 0 0 80px {c["glow2"]}; }}
+  50% {{ box-shadow: 0 0 70px {c["glow"]}, 0 0 120px {c["glow2"]}; }}
+}}
 .pin-ring img{{width:100%;height:100%;object-fit:cover}}
 .pin-label{{margin-top:14px;background:#fff;color:#111;font-weight:900;font-size:38px;letter-spacing:2px;padding:10px 28px;border-radius:10px;display:inline-block;box-shadow:0 6px 30px rgba(0,0,0,0.8)}}
 {LOGO_SVG}
