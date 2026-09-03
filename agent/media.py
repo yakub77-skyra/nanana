@@ -2,13 +2,13 @@ import re
 import httpx
 from loguru import logger
 
-UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
 
 def download(url, path, timeout=120):
     if not url: return None
     try:
         r = httpx.get(url, timeout=timeout, headers=UA, follow_redirects=True)
-        if r.status_code == 200 and len(r.content) > 5000:
+        if r.status_code == 200 and len(r.content) > 3000:
             open(path, "wb").write(r.content); return path
     except Exception as e:
         logger.warning(f"download failed: {e}")
@@ -30,6 +30,7 @@ def og_image(url):
         return None
 
 def commons_image(query, path):
+    """Wikimedia Commons with proper User-Agent (fixes 403)."""
     try:
         r = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=20, headers=UA, params={
             "action": "query", "format": "json", "generator": "search",
