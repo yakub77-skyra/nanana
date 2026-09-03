@@ -515,14 +515,14 @@ CRITICAL RULES:
         theme = "red" if disaster else palette[i % len(palette)]
         loc = (item.location or "").lower()
         head = (item.headline or "").lower()
-        state = item.state or (next((s for s in STATES if s in loc or s in head), "") or "")
+        state_name = item.state or (next((s for s in STATES if s in loc or s in head), "") or "")
         built.append(Scene(
             type="news_frame",
             frame_number=i + 1,
             breaking_headline=_cut(item.headline, 60).upper(),
             headline=_cut(item.headline, 60).upper(),
             location=item.location or "INDIA",
-            state=state.title() if state else "",
+            state=state_name.title() if state_name else "",
             style="roundup",
             breaking_image_query=item.image_query,
             narration=item.narration,
@@ -535,7 +535,7 @@ CRITICAL RULES:
         "schema": {"scenes": scenes, "caption": resp.caption, "hashtags": resp.hashtags},
         "article": state["articles"][0],
     }
-
+    
 # ------------------------------------------------------------------
 # 10. AUTO REPLY TO COMMENTS
 # ------------------------------------------------------------------
