@@ -1,4 +1,3 @@
-
 import datetime
 import asyncio
 import os
@@ -50,7 +49,6 @@ FEEDS = {
 ZERNIO = "https://zernio.com/api/v1"
 HIST, ANA = "history.json", "analytics.json"
 
-
 # ------------------------------------------------------------------
 # FREE-MODEL FAILOVER
 # ------------------------------------------------------------------
@@ -69,7 +67,6 @@ def _live_free_models():
     except Exception:
         return []
 
-
 def _model_chain():
     pref = [m.strip() for m in settings.llm_fallbacks.split(",") if m.strip()]
     if settings.llm_model:
@@ -78,7 +75,6 @@ def _model_chain():
     chain = [m for m in pref if m in live or m.endswith(":free")]
     chain += [m for m in live if m not in chain][:3]
     return chain or pref
-
 
 def llm_create(prompt, response_model=None):
     last: Exception = RuntimeError(
@@ -104,13 +100,11 @@ def llm_create(prompt, response_model=None):
             logger.warning(f"{model} failed -> next free model")
     raise last
 
-
 # ------------------------------------------------------------------
 # HELPERS
 # ------------------------------------------------------------------
 def _load(p):
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}
-
 
 def _real_url(link):
     if "news.google.com" not in link:
@@ -130,7 +124,6 @@ def _real_url(link):
         pass
     return link
 
-
 KNOWN_LOC = [
     "delhi", "mumbai", "bihar", "noida", "gurugram", "jaipur", "kanpur", "patna",
     "kolkata", "chennai", "bengaluru", "hyderabad", "ahmedabad", "pune", "lucknow",
@@ -140,7 +133,6 @@ KNOWN_LOC = [
     "punjab", "tamil nadu", "kerala", "west bengal", "odisha", "munger", "thane",
     "nagpur", "goa", "haryana", "jharkhand", "chhattisgarh", "telangana", "andhra pradesh",
 ]
-
 
 def _cut(s, n):
     s = s or ""
@@ -153,7 +145,6 @@ def _cut(s, n):
     while words and (words[-1].upper().strip(".") in bad or words[-1].upper().endswith("'S") or words[-1].endswith(",")):
         words.pop()
     return " ".join(words).strip()
-
 
 # ------------------------------------------------------------------
 # 1. FETCH
@@ -171,7 +162,6 @@ def fetch_news(state):
     logger.info(f"Fetched {len(arts)} fresh articles")
     return {"articles": arts}
 
-
 # ------------------------------------------------------------------
 # 2. LEARN
 # ------------------------------------------------------------------
@@ -188,7 +178,6 @@ def learn(state):
     except Exception as e:
         logger.warning(f"insights skipped: {e}")
     return {}
-
 
 # ------------------------------------------------------------------
 # 3. SELECT STORY
@@ -225,7 +214,6 @@ Return the article_index exactly as shown in square brackets."""
     logger.success(f"Selected: {state['articles'][idx]['title']}")
     return {"selected": {"article_index": idx}}
 
-
 # ------------------------------------------------------------------
 # 4. EXTRACT DEEP-DIVE SCHEMA (NEW VISUAL STYLE)
 # ------------------------------------------------------------------
@@ -238,7 +226,7 @@ def extract_schema(state):
     real_date = scraped.get("date", "today")
     lang_hint = ("narration lines MUST be in simple spoken Hindi, Devanagari script. "
                  if settings.narration_lang == "hi" else "narration lines MUST be in crisp English. ")
-    
+
     prompt = f"""You are the editor of @indiainlast24hr-style viral news reels.
 
 STORY:
@@ -255,18 +243,20 @@ CRITICAL TRUTH RULES:
 3. breaking_headline MUST be a verbatim substring of RSS title.
 4. map pin MUST be a real city/state/place from the story.
 
-VISUAL STYLE RULES (MATCH THE EXACT VIDEO STYLE):
-- Scene 1: map_intro -- Dramatic 3D satellite map of India with purple glowing outline, dark background, zoom animation. Use overlay_text = short headline.
-- Scene 2: news_frame OR article_card -- Show the main news with photo. If location-specific, use location_highlight with red glow.
-- Scene 3-4: Mix of article_card (floating white news card over blurred background), quote_card (dramatic quote display), stat_overlay (big number display), footage_highlight (real footage with red circle).
-- Scene 5-6: breaking_card for OTHER headlines from the feed below.
-- For disaster/tragedy stories: use disaster_dramatic (red-tinted dramatic scene) and location_highlight (red glow).
-- For political stories: use news_frame (numbered frame on map) and article_card.
-- For stats/data stories: use stat_overlay with big numbers.
+VISUAL STYLE RULES (MATCH THE EXACT REFERENCE VIDEO STYLE, IN THIS ORDER):
+- Scene 1: title_card -- pure black hook card, glowing white ALL CAPS headline, slow zoom. overlay_text = punchy 4-8 word headline. narration = short hook line.
+- Scene 2: map_intro -- dramatic 3D satellite map of India, purple glowing outline, zoom. overlay_text = short headline. pin = real city/state.
+- Scene 3: news_frame (style "deep") -- yellow dashed photo frame on black, purple numbered circle, headline box, location tag.
+- Scene 4: mix ONE of: article_card (floating white news card over blurred bg) / quote_card (real quote) / stat_overlay (big real number) / footage_highlight (red circle on footage) / location_highlight (red glowing city label, use for disaster cities like KOLKATA / MUMBAI).
+- Scene 5-6: breaking_card for OTHER headlines from the feed below (white card, huge BREAKING, red highlighted words, photo, LIVE UPDATE + date badges).
+- For disaster/tragedy: prefer disaster_dramatic + location_highlight with theme "red".
+- For politics: prefer news_frame + article_card.
+- For data/money: prefer stat_overlay.
 
-Available scene types:
-- map_intro: country, pin, overlay_text, theme (purple/red/blue)
-- news_frame: frame_number, headline, location, theme
+Available scene types and fields:
+- title_card: overlay_text, theme (purple/red/blue)
+- map_intro: country, pin, overlay_text, theme
+- news_frame: frame_number, headline, location, theme, style ("deep"), state
 - article_card: masthead, headline, category, date_str, source_color
 - location_highlight: country, pin, overlay_text, theme (red for disaster)
 - disaster_dramatic: breaking_headline, sub_text
@@ -277,29 +267,33 @@ Available scene types:
 
 Each scene needs:
 - type (one of the above)
-- narration (spoken text, Hindi or English per config)
-- clip_query or breaking_image_query for background image search
+- narration (spoken text, Hindi or English per config; title_card narration = hook line)
+- clip_query or breaking_image_query for background image search (generic words, NO proper nouns)
 - image_url or article_link for real photos
 
 Other headlines:
 {others}
 
 Also write caption + 8 hashtags."""
-    
+
     resp = llm_create(prompt, StorySchema)
     schema = resp.model_dump()
     if len(schema.get("scenes", [])) < 3:
         logger.warning("Fallback schema built")
         t = a["title"]
         schema["scenes"] = [
+            Scene(type="title_card", overlay_text=_cut(t, 44).upper(), narration=_cut(t, 44), theme="purple").model_dump(),
             Scene(type="map_intro", country="India", pin="India", overlay_text=_cut(t, 44).upper(), narration=t, theme="purple").model_dump(),
-            Scene(type="news_frame", frame_number=1, headline=t, location="INDIA", narration=t, theme="purple").model_dump(),
+            Scene(type="news_frame", frame_number=1, headline=t, location="INDIA", style="deep", narration=t, theme="purple").model_dump(),
             Scene(type="breaking_card", breaking_headline=_cut(t, 60).upper(), breaking_sub=a["source"], narration=t).model_dump(),
         ]
         schema.setdefault("caption", t)
         schema.setdefault("hashtags", ["india", "news"])
+    if schema["scenes"] and schema["scenes"][0].get("type") != "title_card":
+        t = a["title"]
+        schema["scenes"].insert(0, Scene(type="title_card", overlay_text=_cut(t, 44).upper(),
+                                         narration=_cut(t, 44), theme="purple").model_dump())
     return {"schema": schema, "article": a, "_scraped": scraped}
-
 
 # ------------------------------------------------------------------
 # TRUTH ENFORCEMENT
@@ -310,21 +304,24 @@ def _enforce_truth(scenes, state):
     src = (a.get("source") or "").upper()
     quotes = (state.get("_scraped") or {}).get("quotes", [])
     low = rss.lower()
-    
+
     for sc in scenes:
+        if sc.type == "title_card":
+            sc.overlay_text = (_cut(rss, 44).upper() or sc.overlay_text)
+
         if sc.type in ("map_intro", "location_highlight", "map"):
             pin = (sc.pin or "").lower()
             if not any(k in pin for k in KNOWN_LOC):
                 fix = next((k for k in KNOWN_LOC if k in low), None)
                 sc.pin = fix.title() if fix else (sc.country or "India")
             sc.overlay_text = (_cut(rss, 44).upper() or sc.overlay_text)
-        
+
         if sc.type in ("breaking_card", "breaking") and src and (sc.breaking_sub or "").upper().startswith(src):
             sc.breaking_headline = _cut(rss, 60).upper()
-        
+
         if sc.type in ("quote_card", "quote") and quotes and sc.quote_text not in quotes:
             sc.quote_text = quotes[0]
-    
+
     seen_q = set()
     for sc in list(scenes):
         if sc.type in ("quote_card", "quote"):
@@ -333,13 +330,12 @@ def _enforce_truth(scenes, state):
                 scenes.remove(sc)
             else:
                 seen_q.add(key)
-    
-    if not any(sc.type in ("clip", "news_frame", "footage_highlight") for sc in scenes):
-        kw = " ".join(w for w in rss.split() if len(w) > 4)[:40] or "news"
-        scenes.insert(1, Scene(type="news_frame", frame_number=1, headline=rss, location="INDIA", narration=rss, theme="purple").model_dump())
-    
-    return scenes
 
+    if not any(sc.type in ("clip", "news_frame", "footage_highlight") for sc in scenes):
+        scenes.insert(1, Scene(type="news_frame", frame_number=1, headline=rss, location="INDIA",
+                               style="deep", narration=rss, theme="purple").model_dump())
+
+    return scenes
 
 def proofread_schema(state):
     schema = state["schema"]
@@ -347,21 +343,24 @@ def proofread_schema(state):
     rss_title = a["title"]
     real_quotes = (state.get("_scraped") or {}).get("quotes", [])
     head_low = rss_title.lower()
-    
+
     for scene in schema.get("scenes", []):
+        if scene.get("type") == "title_card":
+            scene["overlay_text"] = _cut(rss_title, 44).upper()
+
         if scene.get("type") in ("breaking_card", "breaking") and scene.get("breaking_sub", "").upper().startswith(a["source"].upper()):
             scene["breaking_headline"] = _cut(rss_title, 60).upper()
-        
+
         if scene.get("type") in ("quote_card", "quote") and real_quotes:
             scene["quote_text"] = real_quotes[0]
-        
+
         if scene.get("type") in ("map_intro", "location_highlight", "map"):
             pin = (scene.get("pin") or "").lower()
             if not any(k in pin for k in KNOWN_LOC):
                 fix = next((k for k in KNOWN_LOC if k in head_low), None)
                 scene["pin"] = fix.title() if fix else (scene.get("country") or "India")
             scene["overlay_text"] = _cut(rss_title, 44).upper()
-    
+
     seen_q = set()
     clean = []
     for scene in schema.get("scenes", []):
@@ -372,13 +371,17 @@ def proofread_schema(state):
             seen_q.add(key)
         clean.append(scene)
     schema["scenes"] = clean
-    
-    if not any(s.get("type") in ("clip", "news_frame", "footage_highlight") for s in schema["scenes"]):
-        kw = " ".join([w for w in rss_title.split() if len(w) > 4][:3]) or "news"
-        schema["scenes"].insert(1, Scene(type="news_frame", frame_number=1, headline=rss_title, location="INDIA", narration=rss_title, theme="purple").model_dump())
-    
-    return {"schema": schema}
 
+    if schema["scenes"] and schema["scenes"][0].get("type") != "title_card":
+        schema["scenes"].insert(0, Scene(type="title_card", overlay_text=_cut(rss_title, 44).upper(),
+                                         narration=_cut(rss_title, 44), theme="purple").model_dump())
+
+    if not any(s.get("type") in ("clip", "news_frame", "footage_highlight") for s in schema["scenes"]):
+        schema["scenes"].insert(1, Scene(type="news_frame", frame_number=1, headline=rss_title,
+                                         location="INDIA", style="deep", narration=rss_title,
+                                         theme="purple").model_dump())
+
+    return {"schema": schema}
 
 # ------------------------------------------------------------------
 # 5. RENDER SCENES
@@ -387,7 +390,7 @@ def render_scenes(state):
     from . import editor, fx, media, tts
     scenes = [Scene(**s) for s in state["schema"]["scenes"]]
     scenes = _enforce_truth(scenes, state)
-    
+
     for sc in scenes:
         if sc.type in ("article_card", "breaking_card", "news_frame") and not sc.image_url:
             target = (sc.headline or sc.breaking_headline or "").lower()
@@ -395,17 +398,16 @@ def render_scenes(state):
             if hit:
                 sc.image_url = media.og_image(hit["link"])
                 sc.article_link = hit["link"]
-    
+
     main_link = state.get("article", {}).get("link")
     for sc in scenes:
         if sc.type in ("clip", "article", "quote", "news_frame", "footage_highlight") and not sc.article_link:
             sc.article_link = main_link
-    
+
     take = tts.speak_full([sc.narration for sc in scenes], "full")
-    segs = editor.render_all(scenes, take)
+    segs = editor.render_all(scenes, take, fmt=state.get("reel_format", "deep_dive"))
     segs.append(fx.outro_video())
     return {"segments": segs}
-
 
 # ------------------------------------------------------------------
 # 6. ASSEMBLE
@@ -416,7 +418,6 @@ def assemble(state):
     editor.assemble(state["segments"], final)
     return {"final": final}
 
-
 # ------------------------------------------------------------------
 # 7. PUBLISH
 # ------------------------------------------------------------------
@@ -424,7 +425,6 @@ def publish(state):
     from . import publisher
     publisher.publish(state["final"], state["schema"].get("caption", ""), state["schema"].get("hashtags", []))
     return {}
-
 
 # ------------------------------------------------------------------
 # LEGACY TTS
@@ -440,13 +440,11 @@ async def _tts(text: str, mp3: str):
                 timings.append((chunk["text"], chunk["offset"] / 1e7, (chunk["offset"] + chunk["duration"]) / 1e7))
     return timings
 
-
 def synthesize_voice(state):
     os.makedirs(settings.output_dir, exist_ok=True)
     mp3 = os.path.join(settings.output_dir, "voice.mp3")
     timings = asyncio.run(_tts(state["schema"]["narration"], mp3))
     return {"voice": {"mp3": mp3, "words": timings}}
-
 
 # ------------------------------------------------------------------
 # 8. SELECT FORMAT
@@ -458,21 +456,20 @@ def select_format(state):
     logger.info(f"Time is {hour}:00 IST -> Format chosen: {fmt.upper()}")
     return {"reel_format": fmt}
 
-
 # ------------------------------------------------------------------
 # 9. EXTRACT ROUNDUP (NEW VISUAL STYLE)
 # ------------------------------------------------------------------
 def extract_roundup(state):
     listing = "\n".join(f"[{i}] {a['source']}: {a['title']}" for i, a in enumerate(state["articles"][:15]))
     lang_hint = ("simple spoken Hindi" if settings.narration_lang == "hi" else "crisp English")
-    
+
     prompt = f"""You are the editor of @indiainlast24hr.
 Create a fast-paced "Top 8 Headlines" reel with the EXACT visual style from the reference videos.
 
 VISUAL STYLE:
 - Opening: map_intro with India glowing purple on dark satellite map
-- Each headline: news_frame with numbered circle (1-8), yellow dashed photo frame, headline text box
-- Background: dark grayscale map of India throughout
+- Each headline: news_frame with numbered circle (1-8), yellow dashed photo frame, white headline box,
+  grayscale India map background with the story's STATE highlighted in color
 - Logo: INDIA24 top-left, @INDIAINLAST24HR top-right
 
 Intro:
@@ -482,9 +479,10 @@ Scenes:
 Pick the 8 most important/viral DISTINCT stories from the feed below.
 Each scene needs:
 - frame_number (1-8)
-- short ENGLISH CAPS headline
+- short ENGLISH CAPS headline (5-6 words)
 - 1-sentence {lang_hint} narration
 - location (city/state/country)
+- state: the Indian state name for the colored map highlight (e.g. "Rajasthan", "Karnataka", "West Bengal", "Maharashtra"). Use "" if the story is national/international.
 - generic image_query (NO proper nouns, NO specific names)
 - theme: "purple" for normal, "red" for disaster/crime/tragedy
 
@@ -497,12 +495,12 @@ CRITICAL RULES:
 - image_query must be generic searchable footage keywords.
 - NEVER use proper nouns or specific names in image_query.
 - Never use graphic, gory, or disturbing imagery descriptions."""
-    
+
     resp = llm_create(prompt, RoundupSchema)
     items = resp.scenes or [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news", location="INDIA") for x in state["articles"][:8]]
-    
+
     scenes = [Scene(type="map_intro", country="India", pin="India", overlay_text="INDIA IN LAST 24 HOURS", narration=resp.intro_narration or "आइए जानते हैं आज की बड़ी खबरें", theme="purple").model_dump()]
-    
+
     for i, item in enumerate(items[:8]):
         theme = "red" if any(w in item.headline.lower() for w in ["death", "kill", "murder", "crash", "flood", "fire", "attack", "bomb", "terror", "rape", "violence", "disaster", "tragedy"]) else "purple"
         scenes.append(Scene(
@@ -511,16 +509,17 @@ CRITICAL RULES:
             breaking_headline=_cut(item.headline, 60).upper(),
             headline=_cut(item.headline, 60).upper(),
             location=item.location or "INDIA",
+            state=item.state or "",
+            style="roundup",
             breaking_image_query=item.image_query,
             narration=item.narration,
             theme=theme,
         ).model_dump())
-    
+
     return {
         "schema": {"scenes": scenes, "caption": resp.caption, "hashtags": resp.hashtags},
         "article": state["articles"][0],
     }
-
 
 # ------------------------------------------------------------------
 # 10. AUTO REPLY TO COMMENTS

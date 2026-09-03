@@ -72,7 +72,7 @@ def get_country_path(name):
         target = next((f for f in gj if name.lower() in nm(f)), None)
     if target is None:
         return None, None, None
-    
+
     rings = lambda f: ([p[0] for p in f["geometry"]["coordinates"]] if f["geometry"]["type"] == "MultiPolygon"
                        else [f["geometry"]["coordinates"][0]])
     tr = rings(target)
@@ -80,12 +80,77 @@ def get_country_path(name):
     tys = [c[1] for r in tr for c in r]
     cx, cy = (min(txs)+max(txs))/2, (min(tys)+max(tys))/2
     w = max(max(txs)-min(txs), 20)
-    
+
     X = lambda lo: (lo + 180) * 6
     Y = lambda la: (90 - la) * 6
-    
+
     d = "".join("M" + "L".join(f"{X(c[0]):.0f} {Y(c[1]):.0f}" for c in r[::2]) + "Z" for r in rings(target))
     return d, cx, cy
+
+# ------------------------------------------------------------------
+# GEOJSON for Indian STATE outlines (roundup map highlights)
+# ------------------------------------------------------------------
+_STATE_URLS = [
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson",
+]
+
+def _states_geojson():
+    if not hasattr(_states_geojson, "cache"):
+        cache_file = Path(settings.output_dir).resolve() / "cache_states.geojson"
+        try:
+            if cache_file.exists():
+                _states_geojson.cache = json.loads(cache_file.read_text(encoding="utf-8"))
+            else:
+                data = {"features": []}
+                for url in _STATE_URLS:
+                    try:
+                        data = httpx.get(url, timeout=120).json()
+                        if data.get("features"):
+                            break
+                    except Exception:
+                        continue
+                try:
+                    cache_file.parent.mkdir(parents=True, exist_ok=True)
+                    cache_file.write_text(json.dumps(data), encoding="utf-8")
+                except Exception:
+                    pass
+                _states_geojson.cache = data
+        except Exception:
+            _states_geojson.cache = {"features": []}
+    return _states_geojson.cache
+
+def _feat_name(f):
+    p = f.get("properties", {}) or {}
+    for k in ("name", "NAME", "NAME_1", "NAME_EN", "shapeName", "st_nm", "NAME_ALT"):
+        v = p.get(k)
+        if v:
+            return str(v).lower()
+    return ""
+
+def get_state_path(name):
+    """Get SVG path data for an Indian state (None if unavailable)."""
+    if not name:
+        return None
+    gj = _states_geojson().get("features", [])
+    if not gj:
+        return None
+    n = name.lower().strip()
+    target = next((f for f in gj if _feat_name(f) == n), None)
+    if target is None:
+        target = next((f for f in gj if n and (n in _feat_name(f) or _feat_name(f) in n)), None)
+    if target is None:
+        return None
+    geom = target.get("geometry") or {}
+    if geom.get("type") == "MultiPolygon":
+        rings = [p[0] for p in geom.get("coordinates", [])]
+    elif geom.get("type") == "Polygon":
+        rings = [geom.get("coordinates", [[]])[0]]
+    else:
+        return None
+    rings = sorted(rings, key=len, reverse=True)[:3]
+    X = lambda lo: (lo + 180) * 6
+    Y = lambda la: (90 - la) * 6
+    return "".join("M" + "L".join(f"{X(c[0]):.0f} {Y(c[1]):.0f}" for c in r[::2]) + "Z" for r in rings)
 
 # ------------------------------------------------------------------
 # SHARED COMPONENTS
@@ -105,6 +170,50 @@ HANDLE_HTML = """<div id="handle" style="position:fixed;top:28px;right:28px;z-in
   <span style="color:#fff;font-family:Arial,sans-serif;font-weight:800;font-size:20px;letter-spacing:1px;text-shadow:0 2px 8px rgba(0,0,0,0.8)">@INDIAINLAST24HR</span>
 </div>"""
 
+def _map_svg_defs(c):
+    return f"""<defs>
+      <pattern id="noise" width="100" height="100" patternUnits="userSpaceOnUse">
+        <filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="3" stitchTiles="stitch"/></filter>
+        <rect width="100" height="100" filter="url(#n)" opacity="0.08"/>
+      </pattern>
+      <linearGradient id="countryGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="{c["glow"]}"/>
+        <stop offset="100%" stop-color="{c["glow2"]}"/>
+      </linearGradient>
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="6" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="glowBright" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="12" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="stateGlow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="10" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>"""
+
+# ------------------------------------------------------------------
+# SCENE 0: TITLE CARD (black hook card with glowing text)
+# ------------------------------------------------------------------
+def title_card_html(text, dur, theme="purple"):
+    glows = {"purple": "#a21caf", "red": "#b91c1c", "blue": "#1d4ed8"}
+    g = glows.get(theme, glows["purple"])
+    safe = _html.escape(text or "BREAKING NEWS").upper()
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
+#glowbg{{position:absolute;left:50%;top:40%;width:900px;height:500px;transform:translate(-50%,-50%);background:radial-gradient(ellipse, {g}55 0%, transparent 70%);filter:blur(40px);animation:gp {dur:.2f}s ease-in-out infinite alternate}}
+@keyframes gp{{from{{opacity:0.5;transform:translate(-50%,-50%) scale(1)}}to{{opacity:1;transform:translate(-50%,-50%) scale(1.15)}}}}
+#txt{{position:absolute;top:40%;left:0;width:100%;transform:translateY(-50%);text-align:center;color:#e8e8e8;font-weight:900;font-size:64px;line-height:1.35;letter-spacing:2px;padding:0 70px;text-shadow:0 2px 6px rgba(0,0,0,0.9), 0 0 40px {g};animation:zin {dur:.2f}s cubic-bezier(0.2,0.7,0.3,1) forwards}}
+@keyframes zin{{0%{{opacity:0;transform:translateY(-50%) scale(0.85)}}25%{{opacity:1}}100%{{opacity:1;transform:translateY(-50%) scale(1.08)}}}}
+</style></head><body>
+<div id="glowbg"></div>
+<div id="txt">{safe}</div>
+</body></html>"""
+
 # ------------------------------------------------------------------
 # SCENE 1: MAP INTRO (3D satellite map with glowing country)
 # ------------------------------------------------------------------
@@ -123,14 +232,13 @@ def map_intro_html(country, overlay_text, dur, theme="purple", topic_img=None, p
         <div class="pin-ring"><img src="data:image/jpeg;base64,{pin_b64}"/></div>
         <div class="pin-label">{_html.escape(pin or country)}</div>
     </div>""" if pin_b64 else ""
-    
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
 #wrap{{position:absolute;inset:0;animation:zoomIn {dur:.2f}s cubic-bezier(0.25,0.1,0.25,1) forwards}}
 @keyframes zoomIn{{from{{transform:scale(1)}}to{{transform:scale(1.6)}}}}
-#map-bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:grayscale(0.7) brightness(0.25) contrast(1.3)}}
 #vignette{{position:absolute;inset:0;background:radial-gradient(ellipse at center, transparent 20%, rgba(0,0,0,0.7) 70%, rgba(0,0,0,0.95) 100%);pointer-events:none}}
 #clouds{{position:absolute;inset:0;pointer-events:none;opacity:0.4}}
 .cloud{{position:absolute;background:radial-gradient(ellipse, rgba(255,255,255,0.08) 0%, transparent 70%);border-radius:50%}}
@@ -155,25 +263,8 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 {HANDLE_HTML}
 </style></head><body>
 <div id="wrap">
-  <svg id="map-bg" viewBox="0 0 2160 1080" preserveAspectRatio="xMidYMid slice">
-    <defs>
-      <pattern id="noise" width="100" height="100" patternUnits="userSpaceOnUse">
-        <filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="3" stitchTiles="stitch"/></filter>
-        <rect width="100" height="100" filter="url(#n)" opacity="0.08"/>
-      </pattern>
-      <linearGradient id="countryGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="{c["glow"]}"/>
-        <stop offset="100%" stop-color="{c["glow2"]}"/>
-      </linearGradient>
-      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="6" result="blur"/>
-        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
-      <filter id="glowBright" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="12" result="blur"/>
-        <feMerge><feMergeNode in="blur"/><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
-    </defs>
+  <svg id="map-svg" viewBox="0 0 2160 1080" preserveAspectRatio="xMidYMid slice">
+    {_map_svg_defs(c)}
     <rect width="2160" height="1080" fill="#0a0a0a"/>
     <rect width="2160" height="1080" fill="url(#noise)"/>
     <path fill="none" stroke="#222" stroke-width="0.8" d="{path_d or ""}"/>
@@ -192,19 +283,66 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 2: NEWS FRAME (numbered headline frame on map background)
+# SCENE 2: NEWS FRAME
+# style="deep"    -> black bg, purple numbered circle (deep-dive reels)
+# style="roundup" -> grayscale India map bg, white circle + RED number,
+#                    yellow dashed photo frame, colored state highlight
 # ------------------------------------------------------------------
-def news_frame_html(number, headline, photo_b64, location, dur, theme="purple"):
+def news_frame_html(number, headline, photo_b64, location, dur, theme="purple", style="deep", state=None):
     colors = {
-        "purple": {"glow": "#c026d3", "numColor": "#e879f9"},
-        "red": {"glow": "#dc2626", "numColor": "#f87171"},
-        "blue": {"glow": "#2563eb", "numColor": "#60a5fa"},
+        "purple": {"glow": "#c026d3", "numColor": "#e879f9", "state": "#7c3aed"},
+        "red": {"glow": "#dc2626", "numColor": "#f87171", "state": "#dc2626"},
+        "blue": {"glow": "#2563eb", "numColor": "#60a5fa", "state": "#2563eb"},
     }
     c = colors.get(theme, colors["purple"])
     path_d, _, _ = get_country_path("India") or ("", None, None)
+    state_d = get_state_path(state) if state else None
     safe_headline = _html.escape(headline or "HEADLINE")
     safe_location = _html.escape(location or "INDIA")
-    
+    photo_html = f'<img src="data:image/jpeg;base64,{photo_b64}" alt=""/>' if photo_b64 else '<div class="no-photo"></div>'
+
+    if style == "roundup":
+        return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
+#map-bg{{position:absolute;inset:0;width:100%;height:100%}}
+#state-path{{fill:{c["state"]};opacity:0.75;stroke:#fff;stroke-width:1.5;filter:url(#stateGlow);animation:stPulse 2.5s ease-in-out infinite}}
+@keyframes stPulse{{0%,100%{{opacity:0.6}}50%{{opacity:0.9}}}}
+#frame-wrap{{position:absolute;top:70px;left:50%;transform:translateX(-50%);width:920px;animation:frameIn 0.5s ease-out forwards;opacity:0}}
+@keyframes frameIn{{0%{{opacity:0;transform:translateX(-50%) translateY(-40px) scale(0.95)}}100%{{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}}}
+#photo-frame{{width:920px;height:520px;border:3px dashed #ffeb3b;border-radius:8px;overflow:hidden;position:relative;box-shadow:0 0 30px rgba(255,235,59,0.15)}}
+#photo-frame img,.no-photo{{width:100%;height:100%;object-fit:cover}}
+.no-photo{{background:radial-gradient(circle at 50% 40%, #202020 0%, #0a0a0a 85%)}}
+#headline-box{{margin-top:22px;background:#f5f5f5;border-radius:10px;padding:26px 34px;box-shadow:0 10px 40px rgba(0,0,0,0.7);animation:textIn 0.6s 0.4s ease-out forwards;opacity:0}}
+@keyframes textIn{{0%{{opacity:0;transform:translateY(20px)}}100%{{opacity:1;transform:translateY(0)}}}}
+#headline-box h2{{color:#111;font-size:40px;font-weight:900;line-height:1.3;text-transform:uppercase;letter-spacing:0.5px}}
+#connector{{position:absolute;top:1240px;left:50%;width:4px;height:110px;background:linear-gradient(to bottom, #ffeb3b, rgba(255,235,59,0.1));transform:translateX(-50%) scaleY(0);transform-origin:top;animation:lineGrow 0.4s 0.6s ease-out forwards}}
+@keyframes lineGrow{{0%{{transform:translateX(-50%) scaleY(0)}}100%{{transform:translateX(-50%) scaleY(1)}}}}
+#num-circle{{position:absolute;top:1350px;left:50%;transform:translateX(-50%);width:110px;height:110px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 0 40px rgba(255,255,255,0.5), 0 10px 40px rgba(0,0,0,0.8);animation:circlePop 0.5s 0.8s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;z-index:10}}
+@keyframes circlePop{{0%{{opacity:0;transform:translateX(-50%) scale(0)}}100%{{opacity:1;transform:translateX(-50%) scale(1)}}}}
+#num-circle span{{color:#d40000;font-size:56px;font-weight:900;font-family:Arial Black;text-shadow:0 2px 6px rgba(0,0,0,0.25)}}
+#location-tag{{position:absolute;top:1490px;left:50%;transform:translateX(-50%);background:{c["glow"]};color:#fff;font-size:24px;font-weight:800;padding:8px 22px;border-radius:6px;letter-spacing:2px;animation:textIn 0.5s 1s ease-out forwards;opacity:0}}
+{LOGO_SVG}
+{HANDLE_HTML}
+</style></head><body>
+<svg id="map-bg" viewBox="0 0 2160 1080" preserveAspectRatio="xMidYMid slice">
+  {_map_svg_defs(c)}
+  <rect width="2160" height="1080" fill="#0a0a0a"/>
+  <rect width="2160" height="1080" fill="url(#noise)"/>
+  <path fill="none" stroke="#3a3a3a" stroke-width="1.2" d="{path_d or ""}"/>
+  {f'<path id="state-path" d="{state_d}"/>' if state_d else ''}
+</svg>
+<div id="frame-wrap">
+  <div id="photo-frame">{photo_html}</div>
+  <div id="headline-box"><h2>{safe_headline}</h2></div>
+</div>
+<div id="connector"></div>
+<div id="num-circle"><span>{number}</span></div>
+<div id="location-tag">{safe_location}</div>
+</body></html>"""
+
+    # ---- deep style (default) ----
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -217,9 +355,9 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 #frame-wrap{{position:absolute;top:80px;left:50%;transform:translateX(-50%);width:920px;animation:frameIn 0.5s ease-out forwards;opacity:0}}
 @keyframes frameIn{{0%{{opacity:0;transform:translateX(-50%) translateY(-40px) scale(0.95)}}100%{{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}}}
 #photo-frame{{width:920px;height:520px;border:3px dashed #ffeb3b;border-radius:8px;overflow:hidden;position:relative;box-shadow:0 0 30px rgba(255,235,59,0.15), inset 0 0 30px rgba(0,0,0,0.3)}}
-#photo-frame::before{{content:'';position:absolute;inset:0;border:2px solid rgba(255,235,59,0.3);border-radius:6px;pointer-events:none}}
-#photo-frame img{{width:100%;height:100%;object-fit:cover}}
-#connector{{position:absolute;top:600px;left:50%;transform:translateX(-50%);width:4px;height:120px;background:linear-gradient(to bottom, #ffeb3b, transparent);animation:lineGrow 0.4s 0.3s ease-out forwards;transform-origin:top;transform:translateX(-50%) scaleY(0)}}
+#photo-frame img,.no-photo{{width:100%;height:100%;object-fit:cover}}
+.no-photo{{background:radial-gradient(circle at 50% 40%, #202020 0%, #0a0a0a 85%)}}
+#connector{{position:absolute;top:600px;left:50%;width:4px;height:120px;background:linear-gradient(to bottom, #ffeb3b, transparent);transform:translateX(-50%) scaleY(0);transform-origin:top;animation:lineGrow 0.4s 0.3s ease-out forwards}}
 @keyframes lineGrow{{0%{{transform:translateX(-50%) scaleY(0)}}100%{{transform:translateX(-50%) scaleY(1)}}}}
 #num-circle{{position:absolute;top:700px;left:50%;transform:translateX(-50%);width:100px;height:100px;border-radius:50%;background:linear-gradient(135deg, {c["numColor"]}, {c["glow"]});display:flex;align-items:center;justify-content:center;box-shadow:0 0 40px {c["glow"]}, 0 0 80px rgba(0,0,0,0.5);animation:circlePop 0.5s 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0;z-index:10}}
 @keyframes circlePop{{0%{{opacity:0;transform:translateX(-50%) scale(0)}}100%{{opacity:1;transform:translateX(-50%) scale(1)}}}}
@@ -233,16 +371,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 </style></head><body>
 <div id="wrap">
   <svg id="map-bg" viewBox="0 0 2160 1080" preserveAspectRatio="xMidYMid slice">
-    <defs>
-      <pattern id="noise" width="100" height="100" patternUnits="userSpaceOnUse">
-        <filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="3" stitchTiles="stitch"/></filter>
-        <rect width="100" height="100" filter="url(#n)" opacity="0.06"/>
-      </pattern>
-      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="4" result="blur"/>
-        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
-    </defs>
+    {_map_svg_defs(c)}
     <rect width="2160" height="1080" fill="#0a0a0a"/>
     <rect width="2160" height="1080" fill="url(#noise)"/>
     <path fill="none" stroke="#222" stroke-width="0.8" d="{path_d or ""}"/>
@@ -252,9 +381,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
     <path d="{path_d or ""}"/>
   </svg>
   <div id="frame-wrap">
-    <div id="photo-frame">
-      <img src="data:image/jpeg;base64,{photo_b64 or ""}" alt=""/>
-    </div>
+    <div id="photo-frame">{photo_html}</div>
   </div>
   <div id="connector"></div>
   <div id="num-circle"><span>{number}</span></div>
@@ -273,7 +400,8 @@ def article_card_html(masthead, headline, category, date_str, bg_b64, dur, sourc
     safe_headline = _html.escape(headline or "HEADLINE")
     safe_category = _html.escape(category or "NEWS").upper()
     safe_date = _html.escape(date_str or _date_str())
-    
+    bg_html = f'<img id="bg" src="data:image/jpeg;base64,{bg_b64}" alt=""/>' if bg_b64 else '<div id="bg" style="background:#111"></div>'
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -299,7 +427,7 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 {HANDLE_HTML}
 </style></head><body>
 <div id="wrap">
-  <img id="bg" src="data:image/jpeg;base64,{bg_b64 or ""}" alt=""/>
+  {bg_html}
   <div id="vignette"></div>
   <div id="card">
     <div id="masthead">
@@ -322,7 +450,7 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 </body></html>"""
 
 # ------------------------------------------------------------------
-# SCENE 4: LOCATION HIGHLIGHT
+# SCENE 4: LOCATION HIGHLIGHT (FIXED: no broken-image frame)
 # ------------------------------------------------------------------
 def location_highlight_html(country, location, photo_b64, overlay_text, dur, theme="red"):
     colors = {
@@ -334,7 +462,12 @@ def location_highlight_html(country, location, photo_b64, overlay_text, dur, the
     path_d, cx, cy = get_country_path(country) or get_country_path("India") or ("", 78.0, 22.0)
     safe_text = _html.escape(overlay_text or location or "LOCATION")
     safe_loc = _html.escape(location or "LOCATION")
-    
+    has_photo = bool(photo_b64)
+    photo_html = f"""<div id="photo-wrap">
+    <img src="data:image/jpeg;base64,{photo_b64}" alt=""/>
+  </div>""" if has_photo else ""
+    label_top = "62%" if has_photo else "45%"
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -349,8 +482,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 #photo-wrap{{position:absolute;top:28%;left:50%;transform:translateX(-50%);width:700px;height:500px;animation:photoIn 0.6s 0.3s ease-out forwards;opacity:0;z-index:20}}
 @keyframes photoIn{{0%{{opacity:0;transform:translateX(-50%) scale(0.85) rotate(-3deg)}}100%{{opacity:1;transform:translateX(-50%) scale(1) rotate(-1deg)}}}}
 #photo-wrap img{{width:100%;height:100%;object-fit:cover;border:3px solid rgba(255,255,255,0.3);box-shadow:0 20px 60px rgba(0,0,0,0.9)}}
-#photo-wrap::after{{content:'';position:absolute;inset:0;box-shadow:inset 0 0 40px rgba(0,0,0,0.5);pointer-events:none}}
-#loc-label{{position:absolute;top:62%;left:50%;transform:translateX(-50%);background:{c["glow"]};color:#fff;font-weight:900;font-size:42px;padding:12px 32px;border-radius:8px;letter-spacing:2px;text-transform:uppercase;box-shadow:0 0 40px {c["glow"]}, 0 10px 30px rgba(0,0,0,0.5);animation:labelIn 0.5s 0.6s ease-out forwards;opacity:0;z-index:20}}
+#loc-label{{position:absolute;top:{label_top};left:50%;transform:translateX(-50%);background:{c["glow"]};color:#fff;font-weight:900;font-size:42px;padding:12px 32px;border-radius:8px;letter-spacing:2px;text-transform:uppercase;box-shadow:0 0 40px {c["glow"]}, 0 10px 30px rgba(0,0,0,0.5);animation:labelIn 0.5s 0.6s ease-out forwards;opacity:0;z-index:20}}
 @keyframes labelIn{{0%{{opacity:0;transform:translateX(-50%) translateY(20px)}}100%{{opacity:1;transform:translateX(-50%) translateY(0)}}}}
 #overlay-text{{position:absolute;bottom:180px;left:0;width:100%;text-align:center;color:#fff;font-weight:800;font-size:48px;letter-spacing:1px;text-shadow:0 4px 20px rgba(0,0,0,0.9);padding:0 80px;line-height:1.3;animation:textIn 0.6s 0.8s ease-out forwards;opacity:0}}
 @keyframes textIn{{0%{{opacity:0;transform:translateY(30px)}}100%{{opacity:1;transform:translateY(0)}}}}
@@ -364,7 +496,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
         <filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.6" numOctaves="3" stitchTiles="stitch"/></filter>
         <rect width="100" height="100" filter="url(#n)" opacity="0.06"/>
       </pattern>
-      <linearGradient id="locGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <linearGradient id="locGrad" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="{c["glow"]}"/>
         <stop offset="100%" stop-color="{c["glow2"]}"/>
       </linearGradient>
@@ -385,9 +517,7 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
   <svg id="country-outline" viewBox="0 0 2160 1080" preserveAspectRatio="xMidYMid slice">
     <path d="{path_d or ""}"/>
   </svg>
-  <div id="photo-wrap">
-    <img src="data:image/jpeg;base64,{photo_b64 or ""}" alt=""/>
-  </div>
+  {photo_html}
   <div id="loc-label">{safe_loc}</div>
   <div id="overlay-text">{safe_text}</div>
 </div>
@@ -399,14 +529,14 @@ html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-fa
 def disaster_dramatic_html(headline, sub_text, footage_b64, dur):
     safe_headline = _html.escape(headline or "BREAKING").upper()
     safe_sub = _html.escape(sub_text or "")
-    
+    bg_html = f'<img id="bg" src="data:image/jpeg;base64,{footage_b64}" alt=""/>' if footage_b64 else '<div id="bg" style="background:#160404"></div>'
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
 #wrap{{position:absolute;inset:0}}
-#bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:brightness(0.4) contrast(1.2);animation:shake 0.3s ease-in-out}}
-@keyframes shake{{0%,100%{{transform:translate(0)}}25%{{transform:translate(-2px,1px)}}75%{{transform:translate(2px,-1px)}}}}
+#bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:brightness(0.4) contrast(1.2)}}
 #red-overlay{{position:absolute;inset:0;background:linear-gradient(180deg, rgba(180,0,0,0.5) 0%, rgba(120,0,0,0.7) 50%, rgba(80,0,0,0.8) 100%);mix-blend-mode:multiply;animation:redPulse 3s ease-in-out infinite}}
 @keyframes redPulse{{0%,100%{{opacity:0.85}}50%{{opacity:1}}}}
 #vignette{{position:absolute;inset:0;background:radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.8) 100%);pointer-events:none}}
@@ -423,7 +553,7 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 {HANDLE_HTML}
 </style></head><body>
 <div id="wrap">
-  <img id="bg" src="data:image/jpeg;base64,{footage_b64 or ""}" alt=""/>
+  {bg_html}
   <div id="red-overlay"></div>
   <div id="vignette"></div>
   <div id="alert-bar"></div>
@@ -442,6 +572,7 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 # ------------------------------------------------------------------
 def footage_highlight_html(footage_b64, circle_x=540, circle_y=960, circle_r=200, label_text="", dur=5):
     safe_label = _html.escape(label_text or "")
+    bg_html = f'<img id="bg" src="data:image/jpeg;base64,{footage_b64}" alt=""/>' if footage_b64 else '<div id="bg" style="background:#111"></div>'
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -462,13 +593,11 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 .ch-r{{left:{circle_x+circle_r+28}px}}
 #label{{position:absolute;left:50%;top:{circle_y+circle_r+60}px;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#ff4444;font-size:28px;font-weight:800;padding:10px 24px;border-radius:6px;border:2px solid #ff4444;letter-spacing:1px;animation:labelIn 0.5s 0.3s ease-out forwards;opacity:0;white-space:nowrap}}
 @keyframes labelIn{{0%{{opacity:0;transform:translateX(-50%) translateY(-10px)}}100%{{opacity:1;transform:translateX(-50%) translateY(0)}}}}
-#mask{{position:absolute;inset:0;pointer-events:none}}
-#mask svg{{width:100%;height:100%}}
 {LOGO_SVG}
 {HANDLE_HTML}
 </style></head><body>
 <div id="wrap">
-  <img id="bg" src="data:image/jpeg;base64,{footage_b64 or ""}" alt=""/>
+  {bg_html}
   <div id="mask">
     <svg width="1080" height="1920">
       <defs>
@@ -504,7 +633,8 @@ def breaking_card_html(headline, sub, img_b64, dur, source=""):
     k = min(4, len(words))
     hl_words = " ".join(words[:k])
     rest_words = " ".join(words[k:])
-    
+    img_html = f'<img src="data:image/jpeg;base64,{img_b64}" alt=""/>' if img_b64 else '<div style="width:100%;height:100%;background:linear-gradient(135deg,#222,#0a0a0a)"></div>'
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -540,7 +670,7 @@ html,body{{width:1080px;height:1920px;background:#111;overflow:hidden;font-famil
     <div id="hl"><span class="red">{hl_words}</span> {rest_words}</div>
     <div id="sub">{safe_sub}</div>
     <div id="img-wrap">
-      <img src="data:image/jpeg;base64,{img_b64 or ""}" alt=""/>
+      {img_html}
       <div id="source-badge">{safe_source or "LIVE UPDATE"}</div>
       <div id="date-badge">{_date_str()}</div>
     </div>
@@ -560,13 +690,13 @@ def quote_card_html(quote_text, person, dur, theme="purple"):
     c = colors.get(theme, colors["purple"])
     safe_quote = _html.escape(quote_text or "")
     safe_person = _html.escape(person or "")
-    
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{width:1080px;height:1920px;background:{c["bg"]};overflow:hidden;font-family:Georgia,serif}}
 #wrap{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:80px}}
-#quote-mark{{position:absolute;top:120px;left:60px;font-size:280px;color:{c["accent"]};opacity:0.15;font-family:Georgia,serif;line-height:1;animation:markIn 0.6s ease-out forwards;opacity:0}}
+#quote-mark{{position:absolute;top:120px;left:60px;font-size:280px;color:{c["accent"]};opacity:0.15;font-family:Georgia,serif;line-height:1;animation:markIn 0.6s ease-out forwards}}
 @keyframes markIn{{0%{{opacity:0;transform:scale(0.5)}}100%{{opacity:0.15;transform:scale(1)}}}}
 #card{{width:100%;background:linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%);border:1px solid rgba(255,255,255,0.1);border-radius:20px;padding:60px;backdrop-filter:blur(20px);box-shadow:0 30px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);animation:cardIn 0.5s ease-out forwards;opacity:0}}
 @keyframes cardIn{{0%{{opacity:0;transform:translateY(30px)}}100%{{opacity:1;transform:translateY(0)}}}}
@@ -686,7 +816,8 @@ def stat_overlay_html(stat_text, label, bg_b64, dur, theme="purple"):
     c = colors.get(theme, colors["purple"])
     safe_stat = _html.escape(stat_text or "0")
     safe_label = _html.escape(label or "")
-    
+    bg_html = f'<img id="bg" src="data:image/jpeg;base64,{bg_b64}" alt=""/>' if bg_b64 else '<div id="bg" style="background:#0a0a0a"></div>'
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
@@ -705,7 +836,7 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 {HANDLE_HTML}
 </style></head><body>
 <div id="wrap">
-  <img id="bg" src="data:image/jpeg;base64,{bg_b64 or ""}" alt=""/>
+  {bg_html}
   <div id="vignette"></div>
   <div id="stat-wrap">
     <div id="stat-circle">

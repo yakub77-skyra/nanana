@@ -1,4 +1,3 @@
-
 import html as _html
 import os, subprocess, re
 from pathlib import Path
@@ -60,7 +59,7 @@ def _polish(seg):
 def _is_bad_capture(seg):
     try:
         png = seg + "_qc.png"
-        subprocess.run([FF, "-y", "-i", seg, "-vf", "select=eq(n\\,12)", "-frames:v", "1", png],
+        subprocess.run([FF, "-y", "-i", seg, "-vf", "select=eq(n,12)", "-frames:v", "1", png],
                        check=True, capture_output=True)
         px = list(Image.open(png).convert("RGB").resize((54, 96)).getdata())
         ratio = sum(1 for r, g, b in px if abs(r-128) < 14 and abs(g-128) < 14 and abs(b-128) < 14) / len(px)
@@ -137,19 +136,16 @@ def _get_photo_b64(scene, i):
 
 def _get_footage_b64(scene, i, dur):
     """Get footage frame as base64 for HTML scenes."""
-    # Try to get a clip frame
     clip = clips.get_clip(scene.clip_query or "news", f"frame_{i}", min(dur, 3), scene.article_link)
     if clip and os.path.exists(clip):
-        # Extract a frame
         frame_path = os.path.join(settings.output_dir, f"frame_{i}.jpg")
-        subprocess.run([FF, "-y", "-i", clip, "-vf", "select=eq(n\\,5)", "-frames:v", "1", frame_path],
+        subprocess.run([FF, "-y", "-i", clip, "-vf", "select=eq(n,5)", "-frames:v", "1", frame_path],
                        check=True, capture_output=True)
         if os.path.exists(frame_path):
             return fx._b64_or_empty(frame_path)
-    # Fallback to image
     return _get_photo_b64(scene, i)
 
-def render_all(scenes, take):
+def render_all(scenes, take, fmt="deep_dive"):
     segs, seen_q = [], set()
     for i, (sc, w) in enumerate(zip(scenes, _scene_windows(scenes, take["words"]))):
         if sc.type == "quote" or sc.type == "quote_card":
@@ -163,21 +159,27 @@ def render_all(scenes, take):
                 sp = os.path.join(settings.output_dir, f"vo_s{i}.mp3")
                 _slice(take["mp3"], w[0], w[1], sp)
                 vo = {"mp3": sp, "words": w[2], "dur": w[1] - w[0] + 0.1}
-            segs.append(render_scene(sc, i, vo))
+            segs.append(render_scene(sc, i, vo, fmt=fmt))
         except Exception as e:
             logger.error(f"Scene {i} ({sc.type}) failed -> skipped: {e}")
     if not segs:
         raise RuntimeError("All scenes failed")
     return segs
 
-def render_scene(scene, i, vo=None):
+def render_scene(scene, i, vo=None, fmt="deep_dive"):
     if vo is None:
         vo = tts.speak(scene.narration, f"s{i}") if scene.narration else None
     dur = vo["dur"] if vo else 4.0
     out = os.path.join(settings.output_dir, f"seg_{i}.mp4")
-    
+
     # NEW SCENE TYPES (matching video style)
-    if scene.type == "map_intro":
+    if scene.type == "title_card":
+        text = scene.overlay_text or scene.headline or scene.breaking_headline or "BREAKING NEWS"
+        html = fx.title_card_html(text, dur, theme=scene.theme or "purple")
+        webm = fx.record_html(html, dur, f"tc{i}")
+        _seg_mux(webm, vo, out, dur)
+
+    elif scene.type == "map_intro":
         country = scene.country or "India"
         pin = scene.pin
         overlay = scene.overlay_text or _cut(scene.headline or "INDIA NEWS", 44).upper()
@@ -190,20 +192,23 @@ def render_scene(scene, i, vo=None):
         html = fx.map_intro_html(country, overlay, dur, theme=theme, topic_img=topic_img, pin=pin)
         webm = fx.record_html(html, dur, f"map{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     elif scene.type == "news_frame":
         photo_b64 = _get_photo_b64(scene, i)
+        style = scene.style or ("roundup" if fmt == "roundup" else "deep")
         html = fx.news_frame_html(
             scene.frame_number or (i + 1),
             scene.headline or scene.breaking_headline or "HEADLINE",
             photo_b64,
             scene.location or scene.pin or "INDIA",
             dur,
-            theme=scene.theme or "purple"
+            theme=scene.theme or "purple",
+            style=style,
+            state=scene.state or None
         )
         webm = fx.record_html(html, dur, f"nf{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     elif scene.type == "article_card":
         bg_img = _get_bg_image(scene, i)
         bg_b64 = fx._b64_or_empty(bg_img) if bg_img else ""
@@ -218,7 +223,7 @@ def render_scene(scene, i, vo=None):
         )
         webm = fx.record_html(html, dur, f"ac{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     elif scene.type == "location_highlight":
         photo_b64 = _get_photo_b64(scene, i)
         html = fx.location_highlight_html(
@@ -231,7 +236,7 @@ def render_scene(scene, i, vo=None):
         )
         webm = fx.record_html(html, dur, f"lh{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     elif scene.type == "disaster_dramatic":
         footage_b64 = _get_footage_b64(scene, i, dur)
         html = fx.disaster_dramatic_html(
@@ -242,7 +247,7 @@ def render_scene(scene, i, vo=None):
         )
         webm = fx.record_html(html, dur, f"dd{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     elif scene.type == "footage_highlight":
         footage_b64 = _get_footage_b64(scene, i, dur)
         html = fx.footage_highlight_html(
@@ -255,7 +260,7 @@ def render_scene(scene, i, vo=None):
         )
         webm = fx.record_html(html, dur, f"fh{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     elif scene.type == "breaking_card":
         img_b64 = _get_photo_b64(scene, i)
         html = fx.breaking_card_html(
@@ -267,7 +272,7 @@ def render_scene(scene, i, vo=None):
         )
         webm = fx.record_html(html, dur, f"bc{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     elif scene.type == "quote_card":
         html = fx.quote_card_html(
             scene.quote_text or "",
@@ -277,19 +282,19 @@ def render_scene(scene, i, vo=None):
         )
         webm = fx.record_html(html, dur, f"qc{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     elif scene.type == "stat_overlay":
-        bg_b64 = _get_footage_b64(scene, i) or ""
+        footage_b64 = _get_footage_b64(scene, i, dur) or ""
         html = fx.stat_overlay_html(
             scene.stat_text or "0",
             scene.stat_label or "",
-            bg_b64,
+            footage_b64,
             dur,
             theme=scene.theme or "purple"
         )
         webm = fx.record_html(html, dur, f"so{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     # LEGACY SCENE TYPES (backward compatibility)
     elif scene.type == "map":
         lat, lon, geo_country = (scraper.geocode(scene.pin) if scene.pin else (None, None, ""))
@@ -307,7 +312,7 @@ def render_scene(scene, i, vo=None):
                                           dur, lat=lat if use else None, lon=lon if use else None,
                                           topic_img=timg), dur, f"map{i}")
         _seg_mux(webm, vo, out, dur)
-    
+
     elif scene.type == "clip":
         blurred = True
         clip = clips.get_clip(scene.clip_query or "news", f"s{i}", dur, scene.article_link)
@@ -329,7 +334,7 @@ def render_scene(scene, i, vo=None):
                            check=True, capture_output=True)
             clip = tmp
         _seg_mux(clip, vo, out, dur, blur=blurred)
-    
+
     elif scene.type == "article":
         webm = None
         if scene.article_link and vo:
@@ -352,11 +357,11 @@ def render_scene(scene, i, vo=None):
                         .replace("__HEADLINE__", sp).replace("__META__", scene.masthead or "")
                         .replace("__BIG__", scene.stat_text or ""))
             _seg_mux(fx.record_html(page, dur, f"art{i}"), vo, out, dur)
-    
+
     elif scene.type == "quote":
         _seg_mux(fx.record_html(fx.quote_html(scene.quote_text or "", scene.person or "",
                                               vo["words"] if vo else [], dur), dur, f"q{i}"), vo, out, dur)
-    
+
     elif scene.type == "breaking":
         head = _cut(scene.breaking_headline or "", 60).upper()
         bg = _get_bg_image(scene, i)
@@ -374,7 +379,7 @@ def render_scene(scene, i, vo=None):
                     Image.new("RGB", (1080, 1350), (18, 18, 18)).save(img)
             _seg_mux(fx.record_html(fx.breaking_html(head, scene.breaking_sub, img, dur),
                                     dur, f"b{i}"), vo, out, dur)
-    
+
     logger.success(f"Scene {i} ({scene.type}) rendered")
     return out
 

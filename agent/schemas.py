@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
 from typing import List
@@ -10,12 +9,12 @@ class SelectedStory(BaseModel):
     article_index: int; reason: str; hook_line: str
 
 class Scene(BaseModel):
-    type: Literal["map_intro", "news_frame", "article_card", "location_highlight", 
-                   "disaster_dramatic", "footage_highlight", "breaking_card", 
-                   "quote_card", "stat_overlay", "clip", "map", "article", 
+    type: Literal["title_card", "map_intro", "news_frame", "article_card", "location_highlight",
+                   "disaster_dramatic", "footage_highlight", "breaking_card",
+                   "quote_card", "stat_overlay", "clip", "map", "article",
                    "quote", "breaking"]
     narration: str = ""
-    # map_intro
+    # title_card / map_intro
     country: Optional[str] = None
     pin: Optional[str] = None
     overlay_text: Optional[str] = None
@@ -24,12 +23,13 @@ class Scene(BaseModel):
     frame_number: Optional[int] = None
     headline: Optional[str] = None
     location: Optional[str] = None
+    style: Optional[str] = None      # "deep" (black bg, purple circle) or "roundup" (map bg, white circle + red number + state highlight)
+    state: Optional[str] = None      # Indian state to highlight on map (roundup style)
     # article_card
     masthead: Optional[str] = None
     category: Optional[str] = None
     date_str: Optional[str] = None
     source_color: Optional[str] = "#c00"
-    # location_highlight
     # disaster_dramatic
     sub_text: Optional[str] = None
     # footage_highlight
@@ -55,7 +55,7 @@ class Scene(BaseModel):
     breaking_image_query: Optional[str] = None
 
 class StorySchema(BaseModel):
-    scenes: list[Scene] = Field(description="Story scenes in order. Start with map_intro, then mix of news_frame/article_card/location_highlight/quote_card/stat_overlay/footage_highlight based on story content. End with breaking_card for other headlines.")
+    scenes: list[Scene] = Field(description="Story scenes in order. Start with title_card hook, then map_intro, then mix of news_frame/article_card/location_highlight/quote_card/stat_overlay/footage_highlight based on story content. End with breaking_card for other headlines.")
     caption: str = ""
     hashtags: list[str] = []
 
@@ -64,6 +64,7 @@ class RoundupScene(BaseModel):
     narration: str = Field(description="1 quick spoken sentence (Hindi or English based on config) explaining the event")
     image_query: str = Field(description="Visual search query for the background image")
     location: str = Field(description="Location for the story (city/state/country)", default="INDIA")
+    state: str = Field(description="Indian state name for map highlight (e.g. Rajasthan, Karnataka). Empty if not a specific state.", default="")
 
 class RoundupSchema(BaseModel):
     intro_narration: str = Field(description="Hook: e.g., 'आइए जानते हैं भारत में पिछले 24 घंटों में क्या हुआ'")
