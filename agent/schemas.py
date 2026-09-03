@@ -18,18 +18,19 @@ class Scene(BaseModel):
     country: Optional[str] = None
     pin: Optional[str] = None
     overlay_text: Optional[str] = None
-    theme: Optional[str] = "purple"  # purple, red, blue
+    theme: Optional[str] = "purple"
     # news_frame
     frame_number: Optional[int] = None
     headline: Optional[str] = None
     location: Optional[str] = None
-    style: Optional[str] = None      # "deep" (black bg, purple circle) or "roundup" (map bg, white circle + red number + state highlight)
-    state: Optional[str] = None      # Indian state to highlight on map (roundup style)
+    style: Optional[str] = None
+    state: Optional[str] = None
     # article_card
     masthead: Optional[str] = None
     category: Optional[str] = None
     date_str: Optional[str] = None
     source_color: Optional[str] = "#c00"
+    # location_highlight
     # disaster_dramatic
     sub_text: Optional[str] = None
     # footage_highlight

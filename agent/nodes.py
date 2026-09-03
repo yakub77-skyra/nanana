@@ -77,7 +77,9 @@ def _model_chain():
     return chain or pref
 
 def llm_create(prompt, response_model=None):
-    last: Exception = RuntimeError("No free models available -- check OpenRouter or llm_fallbacks")
+    last: Exception = RuntimeError(
+        "No free models available -- check OpenRouter or llm_fallbacks"
+    )
     for model in _model_chain():
         try:
             if response_model:
@@ -102,6 +104,7 @@ def llm_create(prompt, response_model=None):
             last = e
             logger.warning(f"{model} failed -> next free model ({type(e).__name__}: {e})")
     raise last
+
 # ------------------------------------------------------------------
 # HELPERS
 # ------------------------------------------------------------------
@@ -182,7 +185,7 @@ def learn(state):
     return {}
 
 # ------------------------------------------------------------------
-# 3. SELECT STORY
+# 3. SELECT STORY (BULLETPROOF)
 # ------------------------------------------------------------------
 def select_story(state):
     hist = _load(HIST).get("recent", [])
@@ -225,34 +228,27 @@ Return the article_index exactly as shown in square brackets."""
     return {"selected": {"article_index": idx}}
 
 # ------------------------------------------------------------------
-# 4. EXTRACT DEEP-DIVE SCHEMA (NEW VISUAL STYLE)
+# 4. EXTRACT DEEP-DIVE SCHEMA (BULLETPROOF)
 # ------------------------------------------------------------------
 def extract_schema(state):
     from . import scraper
+    
     selected = state.get("selected") or {}
     idx = selected.get("article_index", 0)
     articles = state.get("articles") or []
     if not articles or idx < 0 or idx >= len(articles):
         idx = 0
     a = articles[idx]
-    others = (
-        "\n".join(f"- {t['title']}" for t in articles[:6] if t is not a) 
-        or "No other articles"
-    )
-    try:
-        scraped = scraper.deep_scrape(a["link"])
-        real_quotes = ("\n".join(f'- "{q}"' for q in scraped.get("quotes", [])) or "No direct quotes found.")
-        real_date = scraped.get("date", "today")
-    except Exception as e:
-        logger.warning(f"Deep-scrape failed: {e}")
-        scraped = {}
-        real_quotes = "No direct quotes found."
-        real_date = "today"
-
+    
+    others = "\n".join(f"- {t['title']}" for t in articles[:6] if t is not a)
+    scraped = scraper.deep_scrape(a["link"])
+    real_quotes = ("\n".join(f'- "{q}"' for q in scraped.get("quotes", [])) or "No direct quotes found.")
+    real_date = scraped.get("date", "today")
+    
     lang_hint = ("""NARRATION STYLE (CRITICAL): casual urban Hinglish — speak like a young Indian reels creator, NOT like a news anchor.
-- Hindi in Devanagari script, but ALWAYS keep common English words in English (bail, arrest, attack, flood, warning, hearing, recommend, cabinet, office, lawyers, case, war...).
-- Short punchy spoken lines. NEVER use pure/shuddh Hindi words.
-- Roundup hook FIRST: "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ:"
+Hindi in Devanagari script, but ALWAYS keep common English words in English (bail, arrest, attack, flood, warning, hearing, recommend, cabinet, office, lawyers, case, war...).
+Short punchy spoken lines. NEVER use pure/shuddh Hindi words.
+Roundup hook FIRST: "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ:"
 Example tone: "Telangana CM Revanth ne Konda को cabinet से हटाने की recommendation दी है. Delhi Jal Board case में Satyendar Jain को bail मिल गई है. Kolkata में Abhishek Banerjee के office पर attack, 6 लोग arrest."
 """ if settings.narration_lang == "hi" else "narration MUST be crisp casual English, like a viral news reel host. ")
 
@@ -305,8 +301,15 @@ Other headlines:
 
 Also write caption + 8 hashtags."""
 
-    resp = llm_create(prompt, StorySchema)
-    schema = resp.model_dump()
+    try:
+        resp = llm_create(prompt, StorySchema)
+        if resp is None:
+            raise ValueError("LLM returned None")
+        schema = resp.model_dump()
+    except Exception as e:
+        logger.warning(f"LLM schema extraction failed ({e}), using fallback")
+        schema = {"scenes": [], "caption": a["title"], "hashtags": ["india", "news"]}
+    
     if len(schema.get("scenes", [])) < 3:
         logger.warning("Fallback schema built")
         t = a["title"]
@@ -318,10 +321,12 @@ Also write caption + 8 hashtags."""
         ]
         schema.setdefault("caption", t)
         schema.setdefault("hashtags", ["india", "news"])
+    
     if schema["scenes"] and schema["scenes"][0].get("type") != "title_card":
         t = a["title"]
         schema["scenes"].insert(0, Scene(type="title_card", overlay_text=_cut(t, 44).upper(),
                                          narration=_cut(t, 44), theme="purple").model_dump())
+    
     return {"schema": schema, "article": a, "_scraped": scraped}
 
 # ------------------------------------------------------------------
@@ -367,9 +372,9 @@ def _enforce_truth(scenes, state):
     return scenes
 
 def proofread_schema(state):
-    schema = state["schema"]
-    a = state["article"]
-    rss_title = a["title"]
+    schema = state.get("schema") or {"scenes": [], "caption": "", "hashtags": []}
+    a = state.get("article") or {}
+    rss_title = a.get("title", "NEWS")
     real_quotes = (state.get("_scraped") or {}).get("quotes", [])
     head_low = rss_title.lower()
 
@@ -377,7 +382,7 @@ def proofread_schema(state):
         if scene.get("type") == "title_card":
             scene["overlay_text"] = _cut(rss_title, 44).upper()
 
-        if scene.get("type") in ("breaking_card", "breaking") and scene.get("breaking_sub", "").upper().startswith(a["source"].upper()):
+        if scene.get("type") in ("breaking_card", "breaking") and scene.get("breaking_sub", "").upper().startswith((a.get("source") or "").upper()):
             scene["breaking_headline"] = _cut(rss_title, 60).upper()
 
         if scene.get("type") in ("quote_card", "quote") and real_quotes:
@@ -401,6 +406,7 @@ def proofread_schema(state):
         clean.append(scene)
     schema["scenes"] = clean
 
+    # Title card only for deep-dive; roundup starts with map_intro + hook narration
     if schema["scenes"] and schema["scenes"][0].get("type") != "title_card" and state.get("reel_format") != "roundup":
         schema["scenes"].insert(0, Scene(type="title_card", overlay_text=_cut(rss_title, 44).upper(),
                                          narration=_cut(rss_title, 44), theme="purple").model_dump())
@@ -413,7 +419,7 @@ def proofread_schema(state):
     return {"schema": schema}
 
 # ------------------------------------------------------------------
-# 5. RENDER SCENES
+# 5. RENDER SCENES (per-scene TTS for perfect sync)
 # ------------------------------------------------------------------
 def render_scenes(state):
     from . import editor, fx, media, tts
@@ -433,6 +439,7 @@ def render_scenes(state):
         if sc.type in ("clip", "article", "quote", "news_frame", "footage_highlight") and not sc.article_link:
             sc.article_link = main_link
 
+    # Per-scene TTS: each scene speaks its OWN narration (no shared take drift)
     segs = editor.render_all(scenes, None, fmt=state.get("reel_format", "deep_dive"))
     segs.append(fx.outro_video())
     return {"segments": segs}
@@ -485,14 +492,15 @@ def select_format(state):
     return {"reel_format": fmt}
 
 # ------------------------------------------------------------------
-# 9. EXTRACT ROUNDUP (NEW VISUAL STYLE)
+# 9. EXTRACT ROUNDUP (BULLETPROOF)
 # ------------------------------------------------------------------
 def extract_roundup(state):
     listing = "\n".join(f"[{i}] {a['source']}: {a['title']}" for i, a in enumerate(state["articles"][:15]))
+
     lang_hint = ("""NARRATION STYLE (CRITICAL): casual urban Hinglish — speak like a young Indian reels creator, NOT like a news anchor.
-- Hindi in Devanagari script, but ALWAYS keep common English words in English (bail, arrest, attack, flood, warning, hearing, recommend, cabinet, office, lawyers, case, war...).
-- Short punchy spoken lines. NEVER use pure/shuddh Hindi words.
-- Roundup hook FIRST: "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ:"
+Hindi in Devanagari script, but ALWAYS keep common English words in English (bail, arrest, attack, flood, warning, hearing, recommend, cabinet, office, lawyers, case, war...).
+Short punchy spoken lines. NEVER use pure/shuddh Hindi words.
+Roundup hook FIRST: "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ:"
 Example tone: "Telangana CM Revanth ne Konda को cabinet से हटाने की recommendation दी है. Delhi Jal Board case में Satyendar Jain को bail मिल गई है. Kolkata में Abhishek Banerjee के office पर attack, 6 लोग arrest."
 """ if settings.narration_lang == "hi" else "narration MUST be crisp casual English, like a viral news reel host. ")
 
@@ -529,8 +537,18 @@ CRITICAL RULES:
 - NEVER use proper nouns or specific names in image_query.
 - Never use graphic, gory, or disturbing imagery descriptions."""
 
-    resp = llm_create(prompt, RoundupSchema)
-    items = resp.scenes or [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news", location="INDIA") for x in state["articles"][:8]]
+    try:
+        resp = llm_create(prompt, RoundupSchema)
+        if resp is None:
+            raise ValueError("LLM returned None")
+    except Exception as e:
+        logger.warning(f"LLM roundup extraction failed ({e}), using fallback")
+        resp = None
+
+    items = (resp.scenes if resp and hasattr(resp, "scenes") else []) or [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news", location="INDIA") for x in state["articles"][:8]]
+    intro_narration = (resp.intro_narration if resp and hasattr(resp, "intro_narration") else "") or "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ"
+    caption = (resp.caption if resp and hasattr(resp, "caption") else "") or state["articles"][0]["title"]
+    hashtags = (resp.hashtags if resp and hasattr(resp, "hashtags") else []) or ["india", "news"]
 
     STATES = ["telangana", "andhra pradesh", "maharashtra", "gujarat", "rajasthan", "punjab", "haryana", "delhi", "west bengal", "bihar", "uttar pradesh", "madhya pradesh", "karnataka", "tamil nadu", "kerala", "odisha", "assam", "jharkhand", "chhattisgarh", "goa", "nepal"]
     palette = ["purple", "orange", "green", "olive", "blue", "purple", "orange", "green"]
@@ -553,11 +571,11 @@ CRITICAL RULES:
             narration=item.narration,
             theme=theme,
         ))
-    scenes = [Scene(type="map_intro", country="India", pin="India", overlay_text="INDIA IN LAST 24 HOURS", narration=resp.intro_narration or "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ", theme="purple").model_dump()]
+    scenes = [Scene(type="map_intro", country="India", pin="India", overlay_text="INDIA IN LAST 24 HOURS", narration=intro_narration, theme="purple").model_dump()]
     scenes += [sc.model_dump() for sc in built]
 
     return {
-        "schema": {"scenes": scenes, "caption": resp.caption, "hashtags": resp.hashtags},
+        "schema": {"scenes": scenes, "caption": caption, "hashtags": hashtags},
         "article": state["articles"][0],
     }
 

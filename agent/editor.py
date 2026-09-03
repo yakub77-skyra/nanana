@@ -134,18 +134,6 @@ def _get_photo_b64(scene, i):
         return fx._b64_or_empty(img_path)
     return ""
 
-def _get_clip_b64(scene, i, dur):
-    """Fetch a short real clip and return (base64, mime) for <video> frames."""
-    try:
-        clip = clips.get_clip(scene.clip_query or scene.breaking_image_query or "news",
-                              f"nfvid{i}", min(max(dur, 3), 6), scene.article_link)
-        if clip and os.path.exists(clip):
-            mime = "video/webm" if clip.endswith(".webm") else "video/mp4"
-            return fx._b64_or_empty(clip), mime
-    except Exception as e:
-        logger.warning(f"frame video skipped: {e}")
-    return "", "video/mp4"
-
 def _get_footage_b64(scene, i, dur):
     """Get footage frame as base64 for HTML scenes."""
     clip = clips.get_clip(scene.clip_query or "news", f"frame_{i}", min(dur, 3), scene.article_link)
@@ -157,9 +145,11 @@ def _get_footage_b64(scene, i, dur):
             return fx._b64_or_empty(frame_path)
     return _get_photo_b64(scene, i)
 
-def render_all(scenes, take, fmt="deep_dive"):
+def render_all(scenes, take=None, fmt="deep_dive"):
     segs, seen_q = [], set()
-    for i, (sc, w) in enumerate(zip(scenes, _scene_windows(scenes, take["words"]))):
+    words = (take or {}).get("words") or []
+    wins = _scene_windows(scenes, words) if words else [None] * len(scenes)
+    for i, (sc, w) in enumerate(zip(scenes, wins)):
         if sc.type == "quote" or sc.type == "quote_card":
             key = (sc.quote_text or "").strip()[:100]
             if not key or key in seen_q:
@@ -207,7 +197,6 @@ def render_scene(scene, i, vo=None, fmt="deep_dive"):
 
     elif scene.type == "news_frame":
         photo_b64 = _get_photo_b64(scene, i)
-        video_b64, video_mime = _get_clip_b64(scene, i, dur)
         style = scene.style or ("roundup" if fmt == "roundup" else "deep")
         html = fx.news_frame_html(
             scene.frame_number or (i + 1),
@@ -217,9 +206,7 @@ def render_scene(scene, i, vo=None, fmt="deep_dive"):
             dur,
             theme=scene.theme or "purple",
             style=style,
-            state=scene.state or None,
-            video_b64=video_b64,
-            video_mime=video_mime
+            state=scene.state or None
         )
         webm = fx.record_html(html, dur, f"nf{i}")
         _seg_mux(webm, vo, out, dur)

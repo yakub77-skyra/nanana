@@ -2,7 +2,7 @@ import re
 import httpx
 from loguru import logger
 
-UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 def download(url, path, timeout=120):
     if not url: return None
@@ -19,8 +19,8 @@ def og_image(url):
         return None
     try:
         t = httpx.get(url, timeout=15, headers=UA, follow_redirects=True).text
-        m = (re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)', t)
-             or re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', t))
+        m = (re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content="([^"]+)"', t)
+             or re.search(r'<meta[^>]+content="([^"]+)["\'][^>]+property=["\']og:image["\']', t))
         img = m.group(1) if m else None
         if not img or not img.startswith("http"): return None
         if any(bad in img.lower() for bad in ("google", "logo", "icon", "sprite", "placeholder")):
