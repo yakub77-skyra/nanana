@@ -14,6 +14,9 @@ class Settings(BaseSettings):
         "google/gemma-3-27b-it:free,"
         "qwen/qwen-2.5-7b-instruct:free"
         "inclusionai/ling-3.0-flash-fin:free"
+        "minimax/minimax-m3:free"
+        "z-ai/glm-5.2:free"
+        "thinkingmachines/inkling:free"
     )
 
     tts_voice: str = "en-IN-PrabhatNeural"
