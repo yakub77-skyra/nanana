@@ -66,11 +66,31 @@ def _india_fallback_path():
 # ------------------------------------------------------------------
 def _geojson():
     if not hasattr(_geojson, "cache"):
-        url = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson"
+        cache_file = Path(settings.output_dir).resolve() / "cache_countries.geojson"
+        data = None
         try:
-            _geojson.cache = httpx.get(url, timeout=60).json()
+            if cache_file.exists():
+                data = json.loads(cache_file.read_text(encoding="utf-8"))
         except Exception:
-            _geojson.cache = {"features": []}
+            data = None
+        if not data or not data.get("features"):
+            for url in (
+                "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson",
+                "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_110m_admin_0_countries.geojson",
+            ):
+                try:
+                    data = httpx.get(url, timeout=120).json()
+                    if data.get("features"):
+                        break
+                except Exception:
+                    continue
+            try:
+                if data and data.get("features"):
+                    cache_file.parent.mkdir(parents=True, exist_ok=True)
+                    cache_file.write_text(json.dumps(data), encoding="utf-8")
+            except Exception:
+                pass
+        _geojson.cache = data if data and data.get("features") else {"features": []}
     return _geojson.cache
 
 def has_country(name):
@@ -234,7 +254,15 @@ def _bg_layer(sat_b64, blur=0, bright=0.5):
     if sat_b64:
         f = f"filter:grayscale(1) brightness({bright}) contrast(1.25)" + (f" blur({blur}px)" if blur else "")
         return f'<img id="sat" src="data:image/jpeg;base64,{sat_b64}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;{f}"/>'
-    return '<div id="sat" style="position:absolute;inset:0;background:#0a0a0a"></div>'
+    return '''<svg id="sat" style="position:absolute;inset:0;width:100%;height:100%" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <filter id="terr" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.011 0.017" numOctaves="5" seed="11" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 0.30  0 0 0 0 0.31  0 0 0 0 0.34  0 0 0 0.85 0"/></filter>
+        <filter id="clou" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.004 0.006" numOctaves="3" seed="4" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.22 0"/></filter>
+      </defs>
+      <rect width="1080" height="1920" fill="#0b0d10"/>
+      <rect width="1080" height="1920" filter="url(#terr)" opacity="0.55"/>
+      <rect width="1080" height="1920" filter="url(#clou)" opacity="0.35"/>
+    </svg>'''
 
 CLOUDS_HTML = """<div id="clouds">
   <div class="cloud c1"></div><div class="cloud c2"></div>

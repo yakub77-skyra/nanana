@@ -224,8 +224,12 @@ def extract_schema(state):
     scraped = scraper.deep_scrape(a["link"])
     real_quotes = ("\n".join(f'- "{q}"' for q in scraped.get("quotes", [])) or "No direct quotes found.")
     real_date = scraped.get("date", "today")
-    lang_hint = ("narration lines MUST be in simple spoken Hindi, Devanagari script. "
-                 if settings.narration_lang == "hi" else "narration lines MUST be in crisp English. ")
+    lang_hint = ("""NARRATION STYLE (CRITICAL): casual urban Hinglish — speak like a young Indian reels creator, NOT like a news anchor.
+- Hindi in Devanagari script, but ALWAYS keep common English words in English (bail, arrest, attack, flood, warning, hearing, recommend, cabinet, office, lawyers, case, war...).
+- Short punchy spoken lines. NEVER use pure/shuddh Hindi words.
+- Roundup hook FIRST: "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ:"
+Example tone: "Telangana CM Revanth ne Konda को cabinet से हटाने की recommendation दी है. Delhi Jal Board case में Satyendar Jain को bail मिल गई है. Kolkata में Abhishek Banerjee के office पर attack, 6 लोग arrest."
+""" if settings.narration_lang == "hi" else "narration MUST be crisp casual English, like a viral news reel host. ")
 
     prompt = f"""You are the editor of @indiainlast24hr-style viral news reels.
 
@@ -372,7 +376,7 @@ def proofread_schema(state):
         clean.append(scene)
     schema["scenes"] = clean
 
-    if schema["scenes"] and schema["scenes"][0].get("type") != "title_card":
+    if schema["scenes"] and schema["scenes"][0].get("type") != "title_card" and state.get("reel_format") != "roundup":
         schema["scenes"].insert(0, Scene(type="title_card", overlay_text=_cut(rss_title, 44).upper(),
                                          narration=_cut(rss_title, 44), theme="purple").model_dump())
 
@@ -404,8 +408,7 @@ def render_scenes(state):
         if sc.type in ("clip", "article", "quote", "news_frame", "footage_highlight") and not sc.article_link:
             sc.article_link = main_link
 
-    take = tts.speak_full([sc.narration for sc in scenes], "full")
-    segs = editor.render_all(scenes, take, fmt=state.get("reel_format", "deep_dive"))
+    segs = editor.render_all(scenes, None, fmt=state.get("reel_format", "deep_dive"))
     segs.append(fx.outro_video())
     return {"segments": segs}
 
@@ -461,7 +464,12 @@ def select_format(state):
 # ------------------------------------------------------------------
 def extract_roundup(state):
     listing = "\n".join(f"[{i}] {a['source']}: {a['title']}" for i, a in enumerate(state["articles"][:15]))
-    lang_hint = ("simple spoken Hindi" if settings.narration_lang == "hi" else "crisp English")
+    lang_hint = ("""NARRATION STYLE (CRITICAL): casual urban Hinglish — speak like a young Indian reels creator, NOT like a news anchor.
+- Hindi in Devanagari script, but ALWAYS keep common English words in English (bail, arrest, attack, flood, warning, hearing, recommend, cabinet, office, lawyers, case, war...).
+- Short punchy spoken lines. NEVER use pure/shuddh Hindi words.
+- Roundup hook FIRST: "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ:"
+Example tone: "Telangana CM Revanth ne Konda को cabinet से हटाने की recommendation दी है. Delhi Jal Board case में Satyendar Jain को bail मिल गई है. Kolkata में Abhishek Banerjee के office पर attack, 6 लोग arrest."
+""" if settings.narration_lang == "hi" else "narration MUST be crisp casual English, like a viral news reel host. ")
 
     prompt = f"""You are the editor of @indiainlast24hr.
 Create a fast-paced "Top 8 Headlines" reel with the EXACT visual style from the reference videos.
@@ -499,22 +507,29 @@ CRITICAL RULES:
     resp = llm_create(prompt, RoundupSchema)
     items = resp.scenes or [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news", location="INDIA") for x in state["articles"][:8]]
 
-    scenes = [Scene(type="map_intro", country="India", pin="India", overlay_text="INDIA IN LAST 24 HOURS", narration=resp.intro_narration or "आइए जानते हैं आज की बड़ी खबरें", theme="purple").model_dump()]
-
+    STATES = ["telangana", "andhra pradesh", "maharashtra", "gujarat", "rajasthan", "punjab", "haryana", "delhi", "west bengal", "bihar", "uttar pradesh", "madhya pradesh", "karnataka", "tamil nadu", "kerala", "odisha", "assam", "jharkhand", "chhattisgarh", "goa", "nepal"]
+    palette = ["purple", "orange", "green", "olive", "blue", "purple", "orange", "green"]
+    built = []
     for i, item in enumerate(items[:8]):
-        theme = "red" if any(w in item.headline.lower() for w in ["death", "kill", "murder", "crash", "flood", "fire", "attack", "bomb", "terror", "rape", "violence", "disaster", "tragedy"]) else "purple"
-        scenes.append(Scene(
+        disaster = any(w in item.headline.lower() for w in ["death", "kill", "murder", "crash", "flood", "fire", "attack", "bomb", "terror", "rape", "violence", "disaster", "tragedy"])
+        theme = "red" if disaster else palette[i % len(palette)]
+        loc = (item.location or "").lower()
+        head = (item.headline or "").lower()
+        state = item.state or (next((s for s in STATES if s in loc or s in head), "") or "")
+        built.append(Scene(
             type="news_frame",
             frame_number=i + 1,
             breaking_headline=_cut(item.headline, 60).upper(),
             headline=_cut(item.headline, 60).upper(),
             location=item.location or "INDIA",
-            state=item.state or "",
+            state=state.title() if state else "",
             style="roundup",
             breaking_image_query=item.image_query,
             narration=item.narration,
             theme=theme,
-        ).model_dump())
+        ))
+    scenes = [Scene(type="map_intro", country="India", pin="India", overlay_text="INDIA IN LAST 24 HOURS", narration=resp.intro_narration or "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ", theme="purple").model_dump()]
+    scenes += [sc.model_dump() for sc in built]
 
     return {
         "schema": {"scenes": scenes, "caption": resp.caption, "hashtags": resp.hashtags},

@@ -214,15 +214,15 @@ def get_clip(query, tag, dur=8, article_link=None):
         except Exception as e:
             logger.warning(f"article embedded clip failed → next source ({e})")
 
-    clip = viral_clip(query, tag, dur)
-    if clip:
-        return clip
-
     clip = archive_clip(query, tag, dur)
     if clip:
         return clip
 
     clip = image_motion(query, tag, dur)
+    if clip:
+        return clip
+
+    clip = viral_clip(query, tag, dur)
     if clip:
         return clip
 

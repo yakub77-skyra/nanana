@@ -64,7 +64,7 @@ class RoundupScene(BaseModel):
     narration: str = Field(description="1 quick spoken sentence (Hindi or English based on config) explaining the event")
     image_query: str = Field(description="Visual search query for the background image")
     location: str = Field(description="Location for the story (city/state/country)", default="INDIA")
-    state: str = Field(description="Indian state name for map highlight (e.g. Rajasthan, Karnataka). Empty if not a specific state.", default="")
+    state: str = Field(description="Indian state name for map highlight (e.g. Rajasthan, Karnataka). Empty if national/international.", default="")
 
 class RoundupSchema(BaseModel):
     intro_narration: str = Field(description="Hook: e.g., 'आइए जानते हैं भारत में पिछले 24 घंटों में क्या हुआ'")

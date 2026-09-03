@@ -31,7 +31,7 @@ def og_image(url):
 
 def commons_image(query, path):
     try:
-        r = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=20, params={
+        r = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=20, headers=UA, params={
             "action": "query", "format": "json", "generator": "search",
             "gsrsearch": f"filetype:bitmap {query}", "gsrnamespace": 6,
             "prop": "imageinfo", "iiprop": "url", "iiurlwidth": 1080})
