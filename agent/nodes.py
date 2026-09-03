@@ -324,6 +324,8 @@ def _enforce_truth(scenes, state):
     quotes = (state.get("_scraped") or {}).get("quotes", [])
     low = rss.lower()
     for sc in scenes:
+        if sc.type in ("quote_card", "quote") and not sc.person:
+            sc.person = (a.get("source") or "Official Statement").title()
         if sc.type == "title_card":
             sc.overlay_text = _guard_text(rss)
         if sc.type in ("map_intro", "location_highlight", "map"):
@@ -399,6 +401,14 @@ def render_scenes(state):
     for sc in scenes:
         if sc.type in ("clip", "article", "quote", "news_frame", "footage_highlight") and not sc.article_link:
             sc.article_link = main_link
+    from . import editor as _ed
+    pool = []
+    for a in state["articles"][:8]:
+        try:
+            pool.append((a["title"], media.og_image(a["link"])))
+        except Exception:
+            pool.append((a["title"], None))
+    _ed.FEED_IMAGES = pool
     segs = editor.render_all(scenes, None, fmt=state.get("reel_format", "deep_dive"))
     segs.append(fx.outro_video())
     return {"segments": segs}

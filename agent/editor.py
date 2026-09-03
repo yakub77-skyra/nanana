@@ -9,6 +9,7 @@ from .config import settings
 from .schemas import Scene
 
 FF = ioff.get_ffmpeg_exe()
+FEED_IMAGES = []   # [(title, og_url)] populated by nodes.render_scenes
 
 def _font(size=84):
     for n in ("arial.ttf", "Arial.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"):
@@ -122,12 +123,24 @@ def _get_bg_image(scene, i):
     return img if ok else None
 
 def _get_photo_b64(scene, i):
-    """Get photo as base64 for HTML scenes."""
+    """Robust photo chain: scene url → article main → article og → matching feed og →
+    first feed og → openverse → commons → (empty = gradient fallback)."""
     img_path = os.path.join(settings.output_dir, f"photo_{i}.jpg")
     q = scene.clip_query or scene.breaking_image_query or scene.breaking_headline or "news"
     ok = media.download(scene.image_url, img_path) if scene.image_url else None
     if not ok and scene.article_link:
         ok = media.download(scraper.main_image_url(scene.article_link), img_path)
+    if not ok and scene.article_link:
+        ok = media.download(media.og_image(scene.article_link), img_path)
+    if not ok:
+        words = [w for w in (scene.headline or scene.breaking_headline or "").lower().split() if len(w) > 3]
+        pool = sorted(FEED_IMAGES, key=lambda t: -sum(w in t[0].lower() for w in words))
+        for _, url in pool:
+            if url and media.download(url, img_path):
+                ok = img_path
+                break
+    if not ok:
+        ok = media.openverse_image(q, img_path)
     if not ok:
         ok = media.commons_image(q, img_path)
     if ok and os.path.exists(img_path):

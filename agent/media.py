@@ -46,3 +46,18 @@ def commons_image(query, path):
     except Exception as e:
         logger.warning(f"commons failed: {e}")
     return None
+
+def openverse_image(query, path):
+    """CC-image search that works from datacenter IPs (Wikimedia fallback)."""
+    try:
+        r = httpx.get("https://api.openverse.org/v1/images/", timeout=20, headers=UA,
+                      params={"q": query, "page_size": 5})
+        if r.status_code != 200:
+            return None
+        for item in r.json().get("results", []):
+            url = item.get("url") or item.get("thumbnail")
+            if url and download(url, path):
+                return path
+    except Exception as e:
+        logger.warning(f"openverse failed: {e}")
+    return None

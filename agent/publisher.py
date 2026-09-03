@@ -37,4 +37,7 @@ def publish(final, caption, hashtags):
                                         "platformSpecificData": {"shareToFeed": True}}],
                          "publishNow": True},
                    timeout=180).json()
-    logger.success(f"📲 POSTED via Zernio: {r.get('post', {}).get('_id', r)}")
+    if isinstance(r, dict) and r.get("error"):
+        logger.error(f"⚠️ Zernio rejected post: {r['error']} — accountId must own the IG connection")
+    else:
+        logger.success(f"📲 POSTED via Zernio: {r.get('post', {}).get('_id', r)}")
