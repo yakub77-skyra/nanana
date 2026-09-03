@@ -77,29 +77,31 @@ def _model_chain():
     return chain or pref
 
 def llm_create(prompt, response_model=None):
-    last: Exception = RuntimeError(
-        "No free models available -- check OpenRouter or llm_fallbacks"
-    )
+    last: Exception = RuntimeError("No free models available -- check OpenRouter or llm_fallbacks")
     for model in _model_chain():
         try:
             if response_model:
-                return llm.chat.completions.create(
+                resp = llm.chat.completions.create(
                     model=model,
                     response_model=response_model,
                     max_retries=2,
                     messages=[{"role": "user", "content": prompt}],
                 )
+                if resp is None:
+                    raise ValueError("LLM returned None for response_model")
+                return resp
             r = llm.chat.completions.create(
                 model=model,
                 max_retries=2,
                 messages=[{"role": "user", "content": prompt}],
             )
+            if not r or not r.choices:
+                raise ValueError("LLM returned empty choices")
             return r.choices[0].message.content
         except Exception as e:
             last = e
-            logger.warning(f"{model} failed -> next free model")
+            logger.warning(f"{model} failed -> next free model ({type(e).__name__}: {e})")
     raise last
-
 # ------------------------------------------------------------------
 # HELPERS
 # ------------------------------------------------------------------
@@ -192,6 +194,7 @@ def select_story(state):
     listing = "\n".join(f"[{i}] {a['source']}: {a['title']}" for i, a in candidates)
     if not listing:
         listing = "\n".join(f"[{i}] {a['source']}: {a['title']}" for i, a in enumerate(state["articles"]))
+    
     prompt = f"""You are the viral editor of an Indian news Instagram page @indiainlast24hr.
 Pick the ONE story with highest viral potential today.
 Prioritize disaster, politics, crime, money, public emotion, or big national impact.
@@ -204,10 +207,17 @@ Feed:
 {listing}
 
 Return the article_index exactly as shown in square brackets."""
-    resp = llm_create(prompt, SelectedStory)
-    idx = int(resp.article_index)
+    
+    try:
+        resp = llm_create(prompt, SelectedStory)
+        idx = int(resp.article_index) if resp and hasattr(resp, "article_index") else 0
+    except Exception as e:
+        logger.warning(f"LLM selection failed ({e}), defaulting to index 0")
+        idx = 0
+        
     if idx < 0 or idx >= len(state["articles"]):
         idx = 0
+        
     h = _load(HIST)
     h["recent"] = (h.get("recent", []) + [state["articles"][idx]["title"]])[-10:]
     json.dump(h, open(HIST, "w", encoding="utf-8"), ensure_ascii=False)
@@ -219,11 +229,26 @@ Return the article_index exactly as shown in square brackets."""
 # ------------------------------------------------------------------
 def extract_schema(state):
     from . import scraper
-    a = state["articles"][state["selected"]["article_index"]]
-    others = "\n".join(f"- {t['title']}" for t in state["articles"][:6] if t is not a)
-    scraped = scraper.deep_scrape(a["link"])
-    real_quotes = ("\n".join(f'- "{q}"' for q in scraped.get("quotes", [])) or "No direct quotes found.")
-    real_date = scraped.get("date", "today")
+    selected = state.get("selected") or {}
+    idx = selected.get("article_index", 0)
+    articles = state.get("articles") or []
+    if not articles or idx < 0 or idx >= len(articles):
+        idx = 0
+    a = articles[idx]
+    others = (
+        "\n".join(f"- {t['title']}" for t in articles[:6] if t is not a) 
+        or "No other articles"
+    )
+    try:
+        scraped = scraper.deep_scrape(a["link"])
+        real_quotes = ("\n".join(f'- "{q}"' for q in scraped.get("quotes", [])) or "No direct quotes found.")
+        real_date = scraped.get("date", "today")
+    except Exception as e:
+        logger.warning(f"Deep-scrape failed: {e}")
+        scraped = {}
+        real_quotes = "No direct quotes found."
+        real_date = "today"
+
     lang_hint = ("""NARRATION STYLE (CRITICAL): casual urban Hinglish — speak like a young Indian reels creator, NOT like a news anchor.
 - Hindi in Devanagari script, but ALWAYS keep common English words in English (bail, arrest, attack, flood, warning, hearing, recommend, cabinet, office, lawyers, case, war...).
 - Short punchy spoken lines. NEVER use pure/shuddh Hindi words.
@@ -535,7 +560,7 @@ CRITICAL RULES:
         "schema": {"scenes": scenes, "caption": resp.caption, "hashtags": resp.hashtags},
         "article": state["articles"][0],
     }
-    
+
 # ------------------------------------------------------------------
 # 10. AUTO REPLY TO COMMENTS
 # ------------------------------------------------------------------
