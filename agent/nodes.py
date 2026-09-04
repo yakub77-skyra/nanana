@@ -358,7 +358,7 @@ def proofread_schema(state):
     for scene in schema.get("scenes", []):
         if scene.get("type") == "title_card":
             scene["overlay_text"] = _guard_text(rss_title)
-        if scene.get("type") in ("breaking_card", "breaking") and scene.get("breaking_sub","").upper().startswith((a.get("source") or "").upper()):
+        if scene.get("type") in ("breaking_card", "breaking") and (scene.get("breaking_sub") or "").upper().startswith((a.get("source") or "").upper()):
             scene["breaking_headline"] = _cut(rss_title, 60).upper()
         if scene.get("type") in ("quote_card", "quote") and real_quotes:
             scene["quote_text"] = real_quotes[0]
