@@ -11,12 +11,10 @@ MOBILE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit
              "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
 RAW = Path(settings.output_dir).resolve() / "raw"
 _html_cache = {}
-
 _FF = _ioff.get_ffmpeg_exe()
 
 def _ffmpeg_dir():
-    """yt-dlp needs an executable literally named 'ffmpeg' for partial downloads.
-    imageio_ffmpeg ships 'ffmpeg-linux-x86_64-v7.0.2', so we copy it as 'ffmpeg'."""
+    """yt-dlp needs an executable literally named 'ffmpeg' for partial downloads."""
     d = os.path.join(settings.output_dir, "ffbin")
     dst = os.path.join(d, "ffmpeg" + (".exe" if os.name == "nt" else ""))
     if not os.path.exists(dst):
@@ -38,10 +36,8 @@ def get_html(url):
     return _html_cache[url]
 
 def get_text_jina(url):
-    """Anti-ban reader-proxy: server-side fetch, returns clean article text."""
     try:
-        r = httpx.get(f"https://r.jina.ai/{url}", timeout=40,
-                      headers={"User-Agent": "NewsReelAgent/1.0"})
+        r = httpx.get(f"https://r.jina.ai/{url}", timeout=40, headers={"User-Agent": "NewsReelAgent/1.0"})
         if r.status_code == 200 and len(r.text) > 300:
             return r.text
     except Exception as e:
@@ -61,25 +57,19 @@ def deep_scrape(url):
     raw = get_html(url)
     text = ""
     if raw:
-        try:
-            text = trafilatura.extract(raw, include_comments=False, favor_recall=True) or ""
-        except Exception:
-            text = ""
-    if len(text) < 300:                      # blocked site → reader-proxy
-        text = get_text_jina(url)
+        try: text = trafilatura.extract(raw, include_comments=False, favor_recall=True) or ""
+        except Exception: text = ""
+    if len(text) < 300: text = get_text_jina(url)
     if not raw and not text:
         return {"body": "", "quotes": [], "date": "", "author": ""}
-    try:
-        meta = trafilatura.extract_metadata(raw) if raw else None
-    except Exception:
-        meta = None
+    try: meta = trafilatura.extract_metadata(raw) if raw else None
+    except Exception: meta = None
     quotes = [q.strip() for q in re.findall(r'["“]([^"”\n]{20,220})["”]', text) if _valid_quote(q.strip())]
     return {"body": text, "quotes": quotes[:3],
             "date": (getattr(meta, "date", "") if meta else "") or "",
             "author": (getattr(meta, "author", "") if meta else "") or ""}
 
 def match_article(target, articles):
-    """M019 strict token matcher — no substring false hits."""
     toks = [w for w in re.split(r"[^a-zA-Z0-9]+", (target or "").lower()) if len(w) >= 4]
     if not toks: return None
     for a in articles:
@@ -97,8 +87,6 @@ def embedded_videos(url):
     return list(dict.fromkeys(urls))[:4]
 
 def clip_from_urls(urls, path, dur=8):
-    """Download real embedded video. ffmpeg_location fixes the
-    'partial download needs ffmpeg' abort that killed every clip before."""
     if not urls: return None
     try:
         import yt_dlp
@@ -107,8 +95,7 @@ def clip_from_urls(urls, path, dur=8):
             try:
                 opts = {"quiet": True, "format": "best[ext=mp4]/best", "outtmpl": path,
                         "download_ranges": lambda i, y: [{"start_time": 3, "end_time": 3 + dur}]}
-                if ffdir:
-                    opts["ffmpeg_location"] = ffdir
+                if ffdir: opts["ffmpeg_location"] = ffdir
                 try:
                     with yt_dlp.YoutubeDL(opts) as y: y.download([u])
                 except Exception:
@@ -134,7 +121,6 @@ def _is_blocked_page(pg):
         return False
 
 def page_screenshot(url, path):
-    """Real article-page screenshot (the floating card look). Anti-bot guarded."""
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as pw:
@@ -144,10 +130,8 @@ def page_screenshot(url, path):
             pg.wait_for_timeout(2500)
             if _is_blocked_page(pg):
                 b.close(); return None
-            try:
-                pg.locator("article, main, h1").first.screenshot(path=path, timeout=6000)
-            except Exception:
-                pg.screenshot(path=path)
+            try: pg.locator("article, main, h1").first.screenshot(path=path, timeout=6000)
+            except Exception: pg.screenshot(path=path)
             b.close()
         return path if os.path.exists(path) else None
     except Exception as e:
@@ -188,14 +172,14 @@ def mobile_record(url, name, dur, delays=None, scroll=False):
             b = pw.chromium.launch()
             ctx = b.new_context(viewport={"width": 540, "height": 960}, device_scale_factor=1,
                                 user_agent=MOBILE_UA, is_mobile=True, has_touch=True,
-                                record_video_dir=str(RAW))          # native 9:16 (M010)
+                                record_video_dir=str(RAW))
             pg = ctx.new_page()
             pg.goto(url, wait_until="domcontentloaded", timeout=30000)
             pg.wait_for_timeout(2500)
             pg.add_style_tag(content=css)
             pg.wait_for_timeout(1500)
             txt_len = pg.evaluate("() => ((document.body && document.body.innerText) || '').length")
-            if txt_len < 200 or _is_blocked_page(pg):               # M018 anti-bot guard
+            if txt_len < 200 or _is_blocked_page(pg):
                 pg.close(); ctx.close(); b.close(); return None
             if delays is not None:
                 pg.evaluate(r"""(delays) => {
@@ -209,7 +193,7 @@ def mobile_record(url, name, dur, delays=None, scroll=False):
             pg.wait_for_timeout(400)
             if scroll:
                 for _ in range(max(1, int(dur * 2))):
-                    pg.mouse.wheel(0, 260); pg.mouse and pg.wait_for_timeout(500)
+                    pg.mouse.wheel(0, 260); pg.wait_for_timeout(500)
             else:
                 pg.wait_for_timeout(int(dur * 1000))
             v = pg.video; pg.close(); out = v.path(); ctx.close(); b.close()
@@ -262,6 +246,5 @@ def commons_video(query, path):  return _commons_search(query, path, "video", 72
 def commons_portrait(name, path): return _commons_search(f"{name} portrait", path, "bitmap", 800)
 
 def commons_texture(path):
-    """Cached equirectangular earth texture for the pro terrain map."""
     if os.path.exists(path): return path
     return _commons_search("equirectangular earth satellite", path, "bitmap", 2000, timeout=40)

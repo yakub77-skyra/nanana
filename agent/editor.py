@@ -112,8 +112,8 @@ def _get_bg_image(scene, i):
     return img if ok else None
 
 def _get_photo_b64(scene, i):
-    """Relevance-first image chain: scene url → matched feed photo → article photo
-    (not for breaking_card) → openverse → commons. Never a wrong-story photo."""
+    """Relevance-first: scene url → matched feed photo → article photo (NOT for
+    breaking_card) → openverse → commons. Never a wrong-story photo."""
     img_path = os.path.join(settings.output_dir, f"photo_{i}.jpg")
     q = scene.clip_query or scene.breaking_image_query or scene.breaking_headline or "news"
     ok = media.download(scene.image_url, img_path) if scene.image_url else None
@@ -136,7 +136,6 @@ def _get_photo_b64(scene, i):
     return ""
 
 def _scene_video(scene, i, dur):
-    """Real clip pipeline: article embed -> pexels -> archive -> ken-burns. Validated + deduped."""
     out_path = os.path.join(settings.output_dir, f"vid_{i}.mp4")
     if scene.article_link and scene.article_link not in USED_MEDIA:
         embed_url = media.article_video(scene.article_link)
@@ -192,9 +191,8 @@ def render_scene(scene, i, vo=None, fmt="deep_dive"):
         webm = fx.record_html(html, dur, f"tc{i}"); _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "map_intro":
-        country = scene.country or "India"
         overlay = scene.overlay_text or _cut(scene.headline or "INDIA NEWS", 44).upper()
-        html = fx.map_intro_html(country, overlay, dur, theme=scene.theme or "purple")
+        html = fx.map_intro_html(scene.country or "India", overlay, dur, theme=scene.theme or "purple")
         webm = fx.record_html(html, dur, f"map{i}"); _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "news_frame":
@@ -224,17 +222,15 @@ def render_scene(scene, i, vo=None, fmt="deep_dive"):
 
     elif scene.type == "keyword_text":
         vp = _scene_video(scene, i, dur)
-        vb = base64.b64encode(Path(vp).read_bytes()).decode() if vp else ""
+        vb = base64.b64encode(Path(vp).read_bytes()).decode() if vp else _get_photo_b64(scene, i)
         html = fx.keyword_text_html(scene.keyword or scene.headline or "NEWS", vb, dur)
         webm = fx.record_html(html, dur, f"kw{i}"); _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "stat_callout":
         photo_b64 = _get_photo_b64(scene, i)
-        # Pass photo_b64 as bg_b64 so the stat scene has the story photo as background
-        html = fx.stat_callout_html(
-            scene.stat_text or "0", scene.stat_label or "", photo_b64, dur,
-            theme=scene.theme or "purple", extra_lines=scene.extra_lines or [],
-            photo_b64=photo_b64)
+        html = fx.stat_callout_html(scene.stat_text or "0", scene.stat_label or "", photo_b64, dur,
+                                    theme=scene.theme or "purple", extra_lines=scene.extra_lines or [],
+                                    photo_b64=photo_b64)
         webm = fx.record_html(html, dur, f"sc{i}"); _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "table_card":
