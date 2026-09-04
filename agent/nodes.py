@@ -294,18 +294,27 @@ def proofread_schema(state):
     rss_title = a.get("title", "NEWS")
     real_quotes = (state.get("_scraped") or {}).get("quotes", [])
     head_low = rss_title.lower()
+    
     for scene in schema.get("scenes", []):
-        if scene.get("type") == "title_card": scene["overlay_text"] = _guard_text(rss_title)
-        if scene.get("type") == "breaking_card" and scene.get("breaking_sub","").upper().startswith((a.get("source") or "").upper()):
+        if scene.get("type") == "title_card": 
+            scene["overlay_text"] = _guard_text(rss_title)
+            
+        # FIXED: Use `or ""` to handle Pydantic None values safely
+        if scene.get("type") in ("breaking_card", "breaking") and (scene.get("breaking_sub") or "").upper().startswith((a.get("source") or "").upper()):
             scene["breaking_headline"] = _cut(rss_title, 60).upper()
-        if scene.get("type") in ("quote_card", "quote") and real_quotes: scene["quote_text"] = real_quotes[0]
-        if scene.get("type") in ("map_intro", "location_highlight"):
+            
+        if scene.get("type") in ("quote_card", "quote") and real_quotes: 
+            scene["quote_text"] = real_quotes[0]
+            
+        if scene.get("type") in ("map_intro", "location_highlight", "map"):
             pin = (scene.get("pin") or "").lower()
             if not any(k in pin for k in KNOWN_LOC):
                 fix = next((k for k in KNOWN_LOC if k in head_low), None)
                 scene["pin"] = fix.title() if fix else (scene.get("country") or "India")
             scene["overlay_text"] = _guard_text(rss_title)
-    seen_q = set(); clean = []
+            
+    seen_q = set()
+    clean = []
     for scene in schema.get("scenes", []):
         if scene.get("type") in ("quote_card", "quote"):
             key = (scene.get("quote_text") or "").strip()[:100]
@@ -313,12 +322,15 @@ def proofread_schema(state):
             seen_q.add(key)
         clean.append(scene)
     schema["scenes"] = clean
+    
     if schema["scenes"] and schema["scenes"][0].get("type") != "title_card" and state.get("reel_format") != "roundup":
         schema["scenes"].insert(0, Scene(type="title_card", overlay_text=_guard_text(rss_title),
                                          narration=rss_title, theme="purple").model_dump())
+                                         
     if not any(s.get("type") in ("clip", "news_frame", "footage_highlight", "keyword_text") for s in schema["scenes"]):
         schema["scenes"].insert(1, Scene(type="news_frame", frame_number=1, headline=rss_title,
                                          location="INDIA", style="deep", narration=rss_title, theme="purple").model_dump())
+                                         
     return {"schema": schema}
 
 # ============================================================
