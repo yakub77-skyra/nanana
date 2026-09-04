@@ -181,6 +181,7 @@ On-screen text ENGLISH CAPS. Narration casual Hinglish. Return caption + 5 hasht
         resp = llm_create(prompt, StorySchema)
         schema = resp.model_dump() if resp else None
     except Exception: schema = None
+
     if not schema or len(schema.get("scenes", [])) < 3:
         t = a["title"]
         schema = {"scenes": [
@@ -213,27 +214,35 @@ def _enforce_truth(scenes, state):
     for sc in scenes:
         if not sc.headline: sc.headline = smart
         if not sc.breaking_headline: sc.breaking_headline = _smart_headline(rss, 60)
+
         if sc.type == "title_card" and (not sc.overlay_text or sc.overlay_text.upper() in GENERIC):
             sc.overlay_text = smart[:32]
+
         if sc.type in ("map_intro", "location_highlight"):
-            if not sc.overlay_text or sc.overlay_text.upper() in GENERIC: sc.overlay_text = smart[:32]
+            sc.overlay_text = _smart_headline(rss, 32)  # Force smart headline
             pin = (sc.pin or "").lower()
             if not any(k in pin for k in KNOWN_LOC):
                 fix = next((k for k in KNOWN_LOC if k in rss.lower()), None)
                 sc.pin = fix.title() if fix else "India"
+
         if sc.type == "article_card" and (not sc.masthead or sc.masthead.upper() in GENERIC):
             sc.masthead = (a.get("source") or "THE TIMES OF INDIA").title()
+
         if sc.type == "keyword_text" and (not sc.keyword or sc.keyword.upper() in GENERIC):
             sc.keyword = max([w for w in rss.split() if len(w) > 4], key=len, default="NEWS").upper()
+
         if sc.type in ("stat_overlay", "stat_callout"):
-            if not sc.stat_text or sc.stat_text == "0":
+            if not sc.stat_text or sc.stat_text == "0" or (sc.stat_text.strip().isdigit() and int(sc.stat_text) < 10):
                 sc.stat_text = nums[0].strip() if nums else None
             if not sc.stat_text:
-                sc.type = "news_frame"
+                sc.type = "news_frame"  # "1" is not a stat, convert to news_frame
+
         if sc.type == "breaking_card" and (not sc.breaking_sub or sc.breaking_sub.upper() in GENERIC):
             sc.breaking_sub = a.get("source") or ""
+
         if sc.type == "quote_card" and quotes and sc.quote_text not in quotes:
             sc.quote_text = quotes[0]
+
         if sc.type in ("quote_card", "stat_callout") and not sc.person:
             sc.person = (a.get("source") or "Official").title()
         out.append(sc)
@@ -248,6 +257,7 @@ def _enforce_truth(scenes, state):
         if sc.type == "news_frame":
             n += 1; sc.frame_number = n
         final.append(sc)
+
     if not any(sc.type in ("clip", "news_frame", "footage_highlight") for sc in final):
         final.insert(1, Scene(type="news_frame", frame_number=1, headline=smart, location="INDIA",
                               style="deep", narration=rss, theme="purple").model_dump())
@@ -275,7 +285,7 @@ def render_scenes(state):
     for sc in scenes:
         if not sc.article_link: sc.article_link = main_link
     pool = []
-    for a in state["articles"][:8]:
+    for a in state["articles"][:12]:  # Widened to 12
         try: pool.append((a["title"], media.og_image(a["link"])))
         except Exception: pool.append((a["title"], None))
     editor.FEED_IMAGES = pool
@@ -310,31 +320,39 @@ def extract_roundup(state):
     try: resp = llm_create(f"Top 8 headlines reel. Feed:\n{listing}", RoundupSchema)
     except Exception: resp = None
     items = (resp.scenes if resp and hasattr(resp, "scenes") else []) or \
-            [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news") for x in state["articles"][:8]]
+            [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news", location="INDIA") for x in state["articles"][:8]]
     intro = (resp.intro_narration if resp and hasattr(resp, "intro_narration") else "") or "आइए जानते हैं आज की बड़ी खबरें"
+    
     STATES = ["andhra pradesh", "assam", "bihar", "chhattisgarh", "delhi", "goa", "gujarat", "haryana",
               "himachal pradesh", "jharkhand", "karnataka", "kerala", "madhya pradesh", "maharashtra",
               "manipur", "meghalaya", "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim",
               "tamil nadu", "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal",
               "jammu and kashmir", "ladakh"]
     ALIASES = {"jammu kashmir": "jammu and kashmir", "j&k": "jammu and kashmir", "orissa": "odisha",
-               "uk": "uttarakhand", "up": "uttar pradesh"}
+               "uk": "uttarakhand", "up": "uttar pradesh", "bengal": "west bengal", "telengana": "telangana"}
+    palette = ["purple", "orange", "green", "olive", "blue", "purple", "orange", "green"]
+    
     built = []
     for i, item in enumerate(items[:8]):
         loc = (item.location or "").lower()
         head = (item.headline or "").lower()
-        state_name = item.state or ""
+        state_name = (item.state or "").lower()
         if not state_name:
-            for s in STATES:
-                if s in loc or s in head: state_name = s; break
-        state_name = ALIASES.get(state_name.lower(), state_name).title() if state_name else ""
-        disaster = any(w in head for w in ["death", "kill", "murder", "crash", "flood", "fire", "attack", "bomb", "terror", "rape", "violence", "disaster", "tragedy"])
+            state_name = next((s for s in STATES if s in loc or s in head), "")
+        state_name = ALIASES.get(state_name, state_name).title() if state_name else ""
+        disaster = any(w in head for w in ["death", "kill", "murder", "crash", "flood", "fire",
+                                           "attack", "bomb", "terror", "rape", "violence", "disaster", "tragedy"])
+        theme = "red" if disaster else palette[i % len(palette)]
         built.append(Scene(type="news_frame", frame_number=i + 1,
-                           breaking_headline=_cut(item.headline, 60).upper(), headline=_cut(item.headline, 60).upper(),
-                           location=item.location or "INDIA", state=state_name,
+                           breaking_headline=_cut(item.headline, 60).upper(),
+                           headline=_cut(item.headline, 60).upper(),
+                           location=item.location or "INDIA",
+                           state=state_name,
                            style="roundup", breaking_image_query=item.image_query,
-                           narration=item.narration, theme="red" if disaster else "purple"))
-    scenes = [Scene(type="map_intro", country="India", pin="India", overlay_text="INDIA IN LAST 24 HOURS", narration=intro, theme="purple").model_dump()]
+                           narration=item.narration, theme=theme))
+                           
+    scenes = [Scene(type="map_intro", country="India", pin="India",
+                    overlay_text="INDIA IN LAST 24 HOURS", narration=intro, theme="purple").model_dump()]
     scenes += [sc.model_dump() for sc in built]
     return {"schema": {"scenes": scenes, "caption": (resp.caption if resp and hasattr(resp, "caption") else "") or state["articles"][0]["title"],
                        "hashtags": (resp.hashtags if resp and hasattr(resp, "hashtags") else []) or ["india", "news"]},

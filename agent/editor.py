@@ -24,7 +24,7 @@ def _cut(s, n):
     if len(s) <= n: return s
     cut = s[:n]; cut = cut[:cut.rfind(" ")] or cut
     words = cut.split()
-    bad = {"A","AN","THE","OF","TO","IN","FOR","WITH","ON","AT","S","AND","OR","AS","BY","FROM"}
+    bad = {"A", "AN", "THE", "OF", "TO", "IN", "FOR", "WITH", "ON", "AT", "S", "AND", "OR", "AS", "BY", "FROM"}
     while words and (words[-1].upper().strip(".") in bad or words[-1].upper().endswith("'S") or words[-1].endswith(",")):
         words.pop()
     return " ".join(words).strip()
@@ -112,29 +112,27 @@ def _get_bg_image(scene, i):
     return img if ok else None
 
 def _get_photo_b64(scene, i):
-    """url -> article main -> article og -> matched feed -> first unused feed -> openverse -> commons"""
+    """Relevance-first image chain: scene url → matched feed photo → article photo
+    (not for breaking_card) → openverse → commons. Never a wrong-story photo."""
     img_path = os.path.join(settings.output_dir, f"photo_{i}.jpg")
     q = scene.clip_query or scene.breaking_image_query or scene.breaking_headline or "news"
     ok = media.download(scene.image_url, img_path) if scene.image_url else None
-    if not ok and scene.article_link: ok = media.download(scraper.main_image_url(scene.article_link), img_path)
-    if not ok and scene.article_link: ok = media.download(media.og_image(scene.article_link), img_path)
     if not ok:
         words = [w for w in (scene.headline or scene.breaking_headline or "").lower().split() if len(w) > 3]
         best = None
         for title, url in FEED_IMAGES:
-            if not url or url in USED_MEDIA: continue
+            if not url: continue
             score = sum(w in title.lower() for w in words)
-            if score >= 2 and (best is None or score > best[0]): best = (score, url)
+            if score >= 2 and (best is None or score > best[0]):
+                best = (score, url)
         if best: ok = media.download(best[1], img_path)
-    if not ok:
-        for title, url in FEED_IMAGES:
-            if url and url not in USED_MEDIA and media.download(url, img_path):
-                ok = img_path; break
+    if not ok and scene.article_link and scene.type != "breaking_card":
+        ok = media.download(scraper.main_image_url(scene.article_link), img_path)
+    if not ok and scene.article_link and scene.type != "breaking_card":
+        ok = media.download(media.og_image(scene.article_link), img_path)
     if not ok: ok = media.openverse_image(q, img_path)
     if not ok: ok = media.commons_image(q, img_path)
-    if ok and os.path.exists(img_path):
-        USED_MEDIA.add(url if (ok == img_path and 'url' in dir()) else "")
-        return fx._b64_or_empty(img_path)
+    if ok and os.path.exists(img_path): return fx._b64_or_empty(img_path)
     return ""
 
 def _scene_video(scene, i, dur):
@@ -225,16 +223,18 @@ def render_scene(scene, i, vo=None, fmt="deep_dive"):
         webm = fx.record_html(html, dur, f"ac{i}"); _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "keyword_text":
-        html = fx.keyword_text_html(scene.keyword or scene.headline or "NEWS",
-                                    _scene_video(scene, i, dur) and base64.b64encode(Path(_scene_video(scene, i, dur)).read_bytes()).decode() or "", dur)
+        vp = _scene_video(scene, i, dur)
+        vb = base64.b64encode(Path(vp).read_bytes()).decode() if vp else ""
+        html = fx.keyword_text_html(scene.keyword or scene.headline or "NEWS", vb, dur)
         webm = fx.record_html(html, dur, f"kw{i}"); _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "stat_callout":
-        vp = _scene_video(scene, i, dur)
-        vb = base64.b64encode(Path(vp).read_bytes()).decode() if vp else ""
-        html = fx.stat_callout_html(scene.stat_text or "0", scene.stat_label or "", vb, dur,
-                                    theme=scene.theme or "purple", extra_lines=scene.extra_lines or [],
-                                    photo_b64=_get_photo_b64(scene, i))
+        photo_b64 = _get_photo_b64(scene, i)
+        # Pass photo_b64 as bg_b64 so the stat scene has the story photo as background
+        html = fx.stat_callout_html(
+            scene.stat_text or "0", scene.stat_label or "", photo_b64, dur,
+            theme=scene.theme or "purple", extra_lines=scene.extra_lines or [],
+            photo_b64=photo_b64)
         webm = fx.record_html(html, dur, f"sc{i}"); _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "table_card":
