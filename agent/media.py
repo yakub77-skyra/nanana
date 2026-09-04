@@ -30,7 +30,6 @@ def og_image(url):
         return None
 
 def commons_image(query, path):
-    """Wikimedia Commons with proper User-Agent (fixes 403)."""
     try:
         r = httpx.get("https://commons.wikimedia.org/w/api.php", timeout=20, headers=UA, params={
             "action": "query", "format": "json", "generator": "search",
@@ -48,7 +47,7 @@ def commons_image(query, path):
     return None
 
 def openverse_image(query, path):
-    """CC-image search that works from datacenter IPs (Wikimedia fallback)."""
+    """CC-image search that works from datacenter IPs."""
     try:
         r = httpx.get("https://api.openverse.org/v1/images/", timeout=20, headers=UA,
                       params={"q": query, "page_size": 5})
