@@ -104,36 +104,41 @@ def _get_bg_image(scene, i):
     return img if ok else None
 
 def _get_photo_b64(scene, i):
-    """Strict image chain: scene url → article main → article og → feed pool (≥2 word match)
-    → openverse → commons → empty. Never hijacks unrelated photos."""
+    """Strict chain: url -> main -> og -> feed pool (relaxed) -> openverse -> commons"""
     img_path = os.path.join(settings.output_dir, f"photo_{i}.jpg")
     q = scene.clip_query or scene.breaking_image_query or scene.breaking_headline or "news"
+    
     ok = media.download(scene.image_url, img_path) if scene.image_url else None
-    if not ok and scene.article_link:
-        ok = media.download(scraper.main_image_url(scene.article_link), img_path)
-    if not ok and scene.article_link:
-        ok = media.download(media.og_image(scene.article_link), img_path)
+    if not ok and scene.article_link: ok = media.download(scraper.main_image_url(scene.article_link), img_path)
+    if not ok and scene.article_link: ok = media.download(media.og_image(scene.article_link), img_path)
+    
+    # Relaxed Feed Pool: If no exact match, just grab the FIRST valid news image from the pool
     if not ok:
-        words = [w for w in (scene.headline or scene.breaking_headline or "").lower().split() if len(w) > 3]
-        best = None
         for title, url in FEED_IMAGES:
-            if not url: continue
-            score = sum(w in title.lower() for w in words)
-            if score >= 2 and (best is None or score > best[0]):
-                best = (score, url)
-        if best: ok = media.download(best[1], img_path)
+            if url and media.download(url, img_path):
+                ok = img_path
+                break
+                
     if not ok: ok = media.openverse_image(q, img_path)
     if not ok: ok = media.commons_image(q, img_path)
+    
     if ok and os.path.exists(img_path): return fx._b64_or_empty(img_path)
     return ""
 
 def _get_footage_b64(scene, i, dur):
-    clip = clips.get_clip(scene.clip_query or "news", f"frame_{i}", min(dur, 3), scene.article_link)
-    if clip and os.path.exists(clip):
-        frame_path = os.path.join(settings.output_dir, f"frame_{i}.jpg")
-        subprocess.run([FF, "-y", "-i", clip, "-vf", "select=eq(n,5)", "-frames:v", "1", frame_path],
-                       check=True, capture_output=True)
-        if os.path.exists(frame_path): return fx._b64_or_empty(frame_path)
+    """Safely extracts a frame from a clip. If clip is corrupt/missing, falls back to photo."""
+    try:
+        clip = clips.get_clip(scene.clip_query or "news", f"frame_{i}", min(dur, 3), scene.article_link)
+        if clip and os.path.exists(clip):
+            frame_path = os.path.join(settings.output_dir, f"frame_{i}.jpg")
+            # NO check=True here! If ffmpeg fails on corrupt file, we just catch it.
+            res = subprocess.run([FF, "-y", "-i", clip, "-vf", "select=eq(n,5)", "-frames:v", "1", frame_path], capture_output=True)
+            if res.returncode == 0 and os.path.exists(frame_path) and os.path.getsize(frame_path) > 1000:
+                return fx._b64_or_empty(frame_path)
+    except Exception as e:
+        logger.warning(f"Footage extraction failed for scene {i}: {e}")
+        
+    # Fallback to static photo
     return _get_photo_b64(scene, i)
 
 def render_all(scenes, take=None, fmt="deep_dive"):

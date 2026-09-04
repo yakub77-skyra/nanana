@@ -48,7 +48,7 @@ class Scene(BaseModel):
     breaking_image_query: Optional[str] = None
 
 class StorySchema(BaseModel):
-    scenes: list[Scene] = Field(description="8-12 beats: title_card, map_intro(pin), news_frame, article_card, keyword_text, stat_callout, quote_card, table_card, breaking_card")
+    scenes: list[Scene] = Field(description="8-12 beats: title_card, map_intro, news_frame, article_card, keyword_text, stat_callout, quote_card, breaking_card")
     caption: str = ""
     hashtags: list[str] = []
 

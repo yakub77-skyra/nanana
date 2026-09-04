@@ -175,15 +175,14 @@ def _bg_layer(sat_b64, blur=0, bright=0.5):
     if sat_b64:
         f = f"filter:grayscale(1) brightness({bright}) contrast(1.25)" + (f" blur({blur}px)" if blur else "")
         return f'<img id="sat" src="data:image/jpeg;base64,{sat_b64}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;{f}"/>'
+    # Fallback: Dark cloudy satellite look (NOT TV static)
     return '''<svg id="sat" style="position:absolute;inset:0;width:100%;height:100%" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid slice">
       <defs>
-        <filter id="terr" x="-20%" y="-20%" width="140%" height="140%"><feTurbulence type="fractalNoise" baseFrequency="0.006 0.009" numOctaves="4" seed="11" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 0.16  0 0 0 0 0.17  0 0 0 0 0.19  0 0 0 0.9 0"/><feGaussianBlur stdDeviation="2"/></filter>
-        <filter id="clou" x="-20%" y="-20%" width="140%" height="140%"><feTurbulence type="fractalNoise" baseFrequency="0.0025 0.004" numOctaves="3" seed="4" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 0.9  0 0 0 0 0.9  0 0 0 0 0.95  0 0 0 0.14 0"/><feGaussianBlur stdDeviation="6"/></filter>
-        <radialGradient id="vig" cx="50%" cy="45%" r="75%"><stop offset="60%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.85)"/></radialGradient>
+        <filter id="terr" x="-20%" y="-20%" width="140%" height="140%"><feTurbulence type="fractalNoise" baseFrequency="0.004 0.006" numOctaves="5" seed="11" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0 0 0 0 0.12  0 0 0 0 0.14  0 0 0 0 0.16  0 0 0 0.95 0"/><feGaussianBlur stdDeviation="3"/></filter>
+        <radialGradient id="vig" cx="50%" cy="45%" r="75%"><stop offset="50%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,0.9)"/></radialGradient>
       </defs>
-      <rect width="1080" height="1920" fill="#0b0d10"/>
+      <rect width="1080" height="1920" fill="#080a0c"/>
       <rect width="1080" height="1920" filter="url(#terr)"/>
-      <rect width="1080" height="1920" filter="url(#clou)"/>
       <rect width="1080" height="1920" fill="url(#vig)"/>
     </svg>'''
 
@@ -612,6 +611,43 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 #sn{{color:#fff;font-size:110px;font-weight:900;font-family:Arial Black;line-height:1}}
 #sl{{color:{c['accent']};font-size:34px;font-weight:800;margin-top:16px;letter-spacing:3px;text-transform:uppercase}}
 </style></head><body>{bg}<div id="sw"><div id="sc"><div id="sn">{_html.escape(stat_text or "0")}</div><div id="sl">{_html.escape(label or "")}</div></div></div></body></html>"""
+
+def stat_callout_html(stat_text, label, bg_b64, dur, theme="purple", extra_lines=None, photo_b64=""):
+    safe_stat = _html.escape(stat_text or "0")
+    safe_label = _html.escape(label or "")
+    extras = "".join(f'<div class="xline">{_html.escape(x)}</div>' for x in (extra_lines or []))
+    bg = f'<img id="bg" src="data:image/jpeg;base64,{bg_b64}" alt=""/>' if bg_b64 else '<div id="bg" style="background:#0a0a0a"></div>'
+    mini = f'<div id="mini"><img src="data:image/jpeg;base64,{photo_b64}"/></div>' if photo_b64 else ""
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
+#bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:brightness(0.35) grayscale(0.5)}}
+#wrap{{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px}}
+#main{{position:relative;color:#fff;font-size:84px;font-weight:900;text-align:center;line-height:1.2;padding:20px 40px;animation:in1 0.6s ease-out forwards;opacity:0}}
+@keyframes in1{{from{{opacity:0;transform:scale(0.8)}}to{{opacity:1;transform:scale(1)}}}}
+#scribble{{position:absolute;inset:-20px -40px;pointer-events:none}}
+#scribble ellipse{{fill:none;stroke:#e00000;stroke-width:8;transform:rotate(-4deg);transform-origin:center;animation:draw 0.8s 0.5s ease-out forwards;stroke-dasharray:2200;stroke-dashoffset:2200}}
+@keyframes draw{{to{{stroke-dashoffset:0}}}}
+.xline{{color:#eee;font-size:40px;font-weight:800;text-align:center;animation:in1 0.6s ease-out forwards;opacity:0}}
+#note{{position:absolute;top:18%;right:10%;transform:rotate(6deg);color:#fff;font-size:32px;font-weight:700;text-shadow:0 2px 10px #000;animation:in1 0.6s 1s ease-out forwards;opacity:0}}
+#arrow{{position:absolute;top:26%;left:40%;width:250px;height:250px;animation:in1 0.6s 0.9s ease-out forwards;opacity:0}}
+#arrow path{{fill:none;stroke:#e00000;stroke-width:8;stroke-linecap:round}}
+#mini{{position:absolute;bottom:12%;left:50%;transform:translateX(-50%);width:200px;height:200px;border-radius:50%;border:6px solid #b00;overflow:hidden;box-shadow:0 0 40px rgba(200,0,0,0.5)}}
+#mini img{{width:100%;height:100%;object-fit:cover}}
+#lbl{{position:absolute;bottom:7%;left:50%;transform:translateX(-50%);background:#fff;color:#8b0000;font-weight:900;font-size:32px;letter-spacing:2px;padding:8px 30px;border-radius:8px}}
+</style></head><body>
+{bg}
+<div id="wrap">
+  <div id="main">{safe_stat}
+    <svg id="scribble" viewBox="0 0 600 220" preserveAspectRatio="none"><ellipse cx="300" cy="110" rx="280" ry="95"/></svg>
+  </div>
+  {extras}
+</div>
+<svg id="arrow" viewBox="0 0 300 300"><path d="M20 280 C 120 200, 60 120, 180 60 M180 60 l-40 10 M180 60 l-5 42"/></svg>
+<div id="note">{safe_label}</div>
+{mini}
+{f'<div id="lbl">{safe_label}</div>' if photo_b64 else ''}
+</body></html>"""
 
 # ---------------- SCENE: outro (white IG card, no logo) ----------------
 def outro_html(dur=4):
