@@ -1,6 +1,7 @@
-import re, os
+import re, os, json
 import httpx
 from loguru import logger
+from .config import settings
 
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
 
@@ -19,7 +20,7 @@ def og_image(url):
     try:
         t = httpx.get(url, timeout=15, headers=UA, follow_redirects=True).text
         m = (re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content="([^"]+)"', t)
-             or re.search(r'<meta[^>]+content="([^"]+)["\'][^>]+property=["\']og:image["\']', t))
+             or re.search(r'<meta[^>]+content="([^"]+)"[^>]+property=["\']og:image["\']', t))
         img = m.group(1) if m else None
         if not img or not img.startswith("http"): return None
         if any(bad in img.lower() for bad in ("google", "logo", "icon", "sprite", "placeholder")): return None
@@ -50,12 +51,34 @@ def openverse_image(query, path):
     except Exception: pass
     return None
 
-def satellite_terrain(path):
-    """Downloads a real NASA Blue Marble earth image (highly reliable) or returns None."""
-    if os.path.exists(path) and os.path.getsize(path) > 10000:
-        return path
-    # NASA Visible Earth - very reliable, no bot protection
-    nasa_url = "https://eoimages.gsfc.nasa.gov/images/imagerecords/74000/74393/world.topo.bathy.200412.3x5400x2700.jpg"
-    if download(nasa_url, path, timeout=30):
-        return path
+def article_video(url):
+    """Extracts a direct MP4 URL from a news article (og:video or JSON-LD)."""
+    if not url: return None
+    try:
+        text = httpx.get(url, timeout=15, headers=UA, follow_redirects=True).text
+        m = re.search(r'<meta[^>]+property=["\']og:video(?::secure_url)?["\'][^>]+content="([^"]+)"', text)
+        if not m: m = re.search(r'<meta[^>]+content="([^"]+)"[^>]+property=["\']og:video', text)
+        if m and m.group(1).startswith("http") and ".mp4" in m.group(1): return m.group(1)
+        for script in re.findall(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', text, re.DOTALL):
+            try:
+                data = json.loads(script)
+                if isinstance(data, list): data = data[0]
+                if isinstance(data, dict) and data.get("@type") == "VideoObject" and data.get("contentUrl"):
+                    return data["contentUrl"]
+            except Exception: continue
+    except Exception: pass
+    return None
+
+def pexels_video(query, path):
+    key = getattr(settings, "pexels_key", "")
+    if not key or not query: return None
+    try:
+        r = httpx.get("https://api.pexels.com/videos/search", headers={"Authorization": key},
+                      params={"query": query, "per_page": 3, "orientation": "portrait"}, timeout=15)
+        if r.status_code != 200: return None
+        for v in r.json().get("videos", []):
+            files = sorted(v.get("video_files", []), key=lambda x: x.get("width", 0) * x.get("height", 0), reverse=True)
+            for f in files:
+                if f.get("link") and download(f["link"], path): return path
+    except Exception: pass
     return None

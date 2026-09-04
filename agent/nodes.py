@@ -81,23 +81,22 @@ def _real_url(link):
     except Exception: pass
     return link
 
-KNOWN_LOC = ["delhi","mumbai","bihar","noida","gurugram","jaipur","kanpur","patna","kolkata","chennai",
-    "bengaluru","hyderabad","ahmedabad","pune","lucknow","india","nepal","china","usa","russia","uk",
-    "pakistan","bangladesh","sri lanka","jammu","kashmir","manipur","assam","uttar pradesh",
-    "madhya pradesh","maharashtra","gujarat","rajasthan","punjab","tamil nadu","kerala","west bengal",
-    "odisha","nagpur","goa","haryana","jharkhand","chhattisgarh","telangana","andhra pradesh"]
+KNOWN_LOC = ["delhi", "mumbai", "bihar", "noida", "gurugram", "jaipur", "kanpur", "patna", "kolkata", "chennai",
+    "bengaluru", "hyderabad", "ahmedabad", "pune", "lucknow", "india", "nepal", "china", "usa", "russia", "uk",
+    "pakistan", "bangladesh", "sri lanka", "jammu", "kashmir", "manipur", "assam", "uttar pradesh",
+    "madhya pradesh", "maharashtra", "gujarat", "rajasthan", "punjab", "tamil nadu", "kerala", "west bengal",
+    "odisha", "nagpur", "goa", "haryana", "jharkhand", "chhattisgarh", "telangana", "andhra pradesh"]
 
 def _cut(s, n):
     s = s or ""
     if len(s) <= n: return s
     cut = s[:n]; cut = cut[:cut.rfind(" ")] or cut
     words = cut.split()
-    bad = {"A","AN","THE","OF","TO","IN","FOR","WITH","ON","AT","S","AND","OR","AS","BY","FROM"}
+    bad = {"A", "AN", "THE", "OF", "TO", "IN", "FOR", "WITH", "ON", "AT", "S", "AND", "OR", "AS", "BY", "FROM"}
     while words and (words[-1].upper().strip(".") in bad or words[-1].upper().endswith("'S") or words[-1].endswith(",")):
         words.pop()
     return " ".join(words).strip()
 
-# P5: Smart Guard Text (splits on punctuation to avoid mid-phrase cuts)
 def _guard_text(s, max_chars=32):
     if not s: return "NEWS"
     for sep in [":", "-", "–", "—", ",", "|"]:
@@ -169,7 +168,6 @@ Each needs: type, narration (Hinglish), clip_query. Return caption + 5 hashtags.
         resp = llm_create(prompt, StorySchema)
         schema = resp.model_dump() if resp else None
     except Exception: schema = None
-
     if not schema or len(schema.get("scenes", [])) < 3:
         t = a["title"]
         schema = {"scenes": [
@@ -180,7 +178,6 @@ Each needs: type, narration (Hinglish), clip_query. Return caption + 5 hashtags.
         ], "caption": t, "hashtags": ["india", "news"]}
     return {"schema": schema, "article": a, "_scraped": scraped}
 
-# P1: Narration Backfill (Guarantees every scene speaks)
 def _backfill_narration(scenes, article_title):
     for sc in scenes:
         if not sc.narration:
@@ -216,7 +213,6 @@ def proofread_schema(state):
     rss_title = a.get("title", "NEWS")
     for scene in schema.get("scenes", []):
         if scene.get("type") == "title_card": scene["overlay_text"] = _guard_text(rss_title)
-        # Safe Pydantic None handling
         if scene.get("type") == "breaking_card" and (scene.get("breaking_sub") or "").upper().startswith((a.get("source") or "").upper()):
             scene["breaking_headline"] = _cut(rss_title, 60).upper()
     if schema["scenes"] and schema["scenes"][0].get("type") != "title_card" and state.get("reel_format") != "roundup":
@@ -227,23 +223,15 @@ def render_scenes(state):
     from . import editor, fx, media
     scenes = [Scene(**s) for s in state["schema"]["scenes"]]
     scenes = _enforce_truth(scenes, state)
-    
-    # P1: Guarantee Audio
     _backfill_narration(scenes, state.get("article", {}).get("title", "News update"))
-    
-    # P2: Assign article_link to ALL card types so they can fetch images
     main_link = state.get("article", {}).get("link")
     for sc in scenes:
         if not sc.article_link: sc.article_link = main_link
-        
-    # Feed image pool
     pool = []
     for a in state["articles"][:8]:
         try: pool.append((a["title"], media.og_image(a["link"])))
         except Exception: pool.append((a["title"], None))
     editor.FEED_IMAGES = pool
-    
-    # Per-scene TTS (take=None)
     segs = editor.render_all(scenes, None, fmt=state.get("reel_format", "deep_dive"))
     segs.append(fx.outro_video())
     return {"segments": segs}
@@ -252,13 +240,11 @@ def assemble(state):
     from . import editor
     final = os.path.join(settings.output_dir, "reel_final.mp4")
     editor.assemble(state["segments"], final)
-    
-    # P6: Summary Log
-    logger.info("="*40)
+    logger.info("=" * 40)
     logger.info("🎬 REEL SUMMARY")
     logger.info(f"✅ Total Scenes Rendered: {len(state['segments']) - 1}")
     logger.info(f"✅ Final Video: {final}")
-    logger.info("="*40)
+    logger.info("=" * 40)
     return {"final": final}
 
 def publish(state):
@@ -274,14 +260,115 @@ def select_format(state):
 
 def extract_roundup(state):
     listing = "\n".join(f"[{i}] {a['source']}: {a['title']}" for i, a in enumerate(state["articles"][:15]))
-    try: resp = llm_create(f"Top 8 headlines reel. Feed:\n{listing}", RoundupSchema)
-    except Exception: resp = None
-    items = (resp.scenes if resp and hasattr(resp, "scenes") else []) or [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news") for x in state["articles"][:8]]
-    intro = (resp.intro_narration if resp and hasattr(resp, "intro_narration") else "") or "आइए जानते हैं आज की बड़ी खबरें"
-    scenes = [Scene(type="map_intro", country="India", pin="India", overlay_text="INDIA IN LAST 24 HOURS", narration=intro, theme="purple").model_dump()]
-    for i, item in enumerate(items[:8]):
-        theme = "red" if any(w in item.headline.lower() for w in ["death","kill","flood","attack","disaster"]) else "purple"
-        scenes.append(Scene(type="news_frame", frame_number=i+1, headline=_cut(item.headline, 60).upper(), location=item.location or "INDIA", style="roundup", breaking_image_query=item.image_query, narration=item.narration, theme=theme).model_dump())
-    return {"schema": {"scenes": scenes, "caption": (resp.caption if resp else "") or state["articles"][0]["title"], "hashtags": (resp.hashtags if resp else []) or ["india"]}, "article": state["articles"][0]}
+    lang_hint = ("""NARRATION STYLE (CRITICAL): casual urban Hinglish — speak like a young Indian reels creator, NOT like a news anchor.
+Hindi in Devanagari script, but ALWAYS keep common English words in English (bail, arrest, attack, flood, warning, hearing, recommend, cabinet, office, lawyers, case, war...).
+Short punchy spoken lines. NEVER use pure/shuddh Hindi words.
+Roundup hook FIRST: "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ:"
+Example tone: "Telangana CM Revanth ne Konda को cabinet से हटाने की recommendation दी है. Delhi Jal Board case में Satyendar Jain को bail मिल गई है. Kolkata में Abhishek Banerjee के office पर attack, 6 लोग arrest."
+""" if settings.narration_lang == "hi" else "narration MUST be crisp casual English, like a viral news reel host. ")
+    prompt = f"""You are the editor of @indiainlast24hr.
+Create a fast-paced "Top 8 Headlines" reel with the EXACT visual style from the reference videos.
+VISUAL STYLE:
+- Opening: map_intro with India glowing purple on dark satellite map
+- Each headline: news_frame with numbered circle (1-8), yellow dashed photo frame, white headline box,
+  grayscale India map background with the story's STATE highlighted in color
+Intro:
+A catchy hook in {lang_hint}.
+Scenes:
+Pick the 8 most important/viral DISTINCT stories from the feed below.
+Each scene needs:
+- frame_number (1-8)
+- short ENGLISH CAPS headline (5-6 words)
+- 1-sentence {lang_hint} narration
+- location (city/state/country)
+- state: the Indian state name for the colored map highlight (e.g. "Rajasthan", "Karnataka", "West Bengal", "Maharashtra"). Use "" if the story is national/international.
+- generic image_query (NO proper nouns, NO specific names)
+- theme: "purple" for normal, "red" for disaster/crime/tragedy
+Feed:
+{listing}
+Also write caption + 8 hashtags.
+CRITICAL RULES:
+- image_query must be generic searchable footage keywords.
+- NEVER use proper nouns or specific names in image_query.
+- Never use graphic, gory, or disturbing imagery descriptions."""
+    try: resp = llm_create(prompt, RoundupSchema)
+    except Exception as e:
+        logger.warning(f"Roundup LLM failed ({e}), using fallback")
+        resp = None
+    items = (resp.scenes if resp and hasattr(resp, "scenes") else []) or \
+            [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news", location="INDIA") for x in state["articles"][:8]]
+    intro = (resp.intro_narration if resp and hasattr(resp, "intro_narration") else "") or "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ"
+    caption = (resp.caption if resp and hasattr(resp, "caption") else "") or state["articles"][0]["title"]
+    hashtags = (resp.hashtags if resp and hasattr(resp, "hashtags") else []) or ["india", "news"]
 
-def reply_comments(state): return {} # Simplified for stability
+    STATES = ["andhra pradesh", "assam", "bihar", "chhattisgarh", "delhi", "goa", "gujarat", "haryana",
+              "himachal pradesh", "jharkhand", "karnataka", "kerala", "madhya pradesh", "maharashtra",
+              "manipur", "meghalaya", "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim",
+              "tamil nadu", "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal",
+              "jammu and kashmir", "ladakh"]
+    ALIASES = {"jammu kashmir": "jammu and kashmir", "j&k": "jammu and kashmir", "orissa": "odisha",
+               "uk": "uttarakhand", "up": "uttar pradesh", "bengal": "west bengal", "telengana": "telangana"}
+    palette = ["purple", "orange", "green", "olive", "blue", "purple", "orange", "green"]
+    built = []
+    for i, item in enumerate(items[:8]):
+        loc = (item.location or "").lower()
+        head = (item.headline or "").lower()
+        state_name = (item.state or "").lower()
+        if not state_name:
+            state_name = next((s for s in STATES if s in loc or s in head), "")
+        state_name = ALIASES.get(state_name, state_name)
+        disaster = any(w in head for w in ["death", "kill", "murder", "crash", "flood", "fire",
+                                           "attack", "bomb", "terror", "rape", "violence", "disaster", "tragedy"])
+        theme = "red" if disaster else palette[i % len(palette)]
+        built.append(Scene(type="news_frame", frame_number=i + 1,
+                           breaking_headline=_cut(item.headline, 60).upper(),
+                           headline=_cut(item.headline, 60).upper(),
+                           location=item.location or "INDIA",
+                           state=state_name.title() if state_name else "",
+                           style="roundup", breaking_image_query=item.image_query,
+                           narration=item.narration, theme=theme))
+    scenes = [Scene(type="map_intro", country="India", pin="India",
+                    overlay_text="INDIA IN LAST 24 HOURS", narration=intro, theme="purple").model_dump()]
+    scenes += [sc.model_dump() for sc in built]
+    return {"schema": {"scenes": scenes, "caption": caption, "hashtags": hashtags},
+            "article": state["articles"][0]}
+
+async def _tts(text: str, mp3: str):
+    timings = []
+    comm = edge_tts.Communicate(text, settings.tts_voice, rate="+8%")
+    with open(mp3, "wb") as f:
+        async for chunk in comm.stream():
+            if chunk["type"] == "audio": f.write(chunk["data"])
+            elif chunk["type"] == "WordBoundary":
+                timings.append((chunk["text"], chunk["offset"] / 1e7, (chunk["offset"] + chunk["duration"]) / 1e7))
+    return timings
+
+def synthesize_voice(state):
+    os.makedirs(settings.output_dir, exist_ok=True)
+    mp3 = os.path.join(settings.output_dir, "voice.mp3")
+    timings = asyncio.run(_tts(state["schema"]["narration"], mp3))
+    return {"voice": {"mp3": mp3, "words": timings}}
+
+def reply_comments(state):
+    if not settings.zernio_api_key: return {}
+    try:
+        posts = httpx.get(f"{ZERNIO}/posts", params={"limit": 3}, headers={"Authorization": f"Bearer {settings.zernio_api_key}"}, timeout=30).json()
+        post_ids = [p.get("id") or p.get("_id") for p in posts.get("posts", []) if p.get("platform") == "instagram"]
+        if not post_ids: return {}
+        comments_res = httpx.get(f"{ZERNIO}/comments", params={"postId": post_ids[0], "limit": 5},
+                                 headers={"Authorization": f"Bearer {settings.zernio_api_key}"}, timeout=30).json()
+        replied = 0
+        for c in comments_res.get("comments", comments_res.get("data", [])):
+            c_id = c.get("id") or c.get("_id")
+            c_text = c.get("text", c.get("message", ""))
+            c_user = c.get("user", {}).get("name", "User")
+            if c.get("isRead") or c.get("isOwner") or replied >= 2: continue
+            try:
+                reply_resp = llm_create(f"Write a 1-sentence friendly reply to this Instagram comment from {c_user}: '{c_text}'. Ask a question back. Reply ONLY with the text.", CommentReply)
+                reply_text = reply_resp.text if hasattr(reply_resp, "text") else str(reply_resp)
+                httpx.post(f"{ZERNIO}/comments/{c_id}/reply", headers={"Authorization": f"Bearer {settings.zernio_api_key}"}, json={"text": reply_text}, timeout=30)
+                replied += 1
+            except Exception: pass
+    except Exception as e:
+        logger.warning(f"comment reply loop skipped: {e}")
+    return {}

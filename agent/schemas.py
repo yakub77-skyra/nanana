@@ -10,7 +10,7 @@ class SelectedStory(BaseModel):
 class Scene(BaseModel):
     type: Literal["title_card", "map_intro", "news_frame", "article_card", "location_highlight",
                   "disaster_dramatic", "footage_highlight", "breaking_card", "quote_card",
-                  "stat_overlay", "stat_callout", "keyword_text", "table_card",
+                  "stat_overlay", "stat_callout", "keyword_text", "table_card", "multi_state",
                   "clip", "map", "article", "quote", "breaking"]
     narration: str = ""
     country: Optional[str] = None
