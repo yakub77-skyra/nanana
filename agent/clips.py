@@ -12,6 +12,20 @@ from . import media
 
 FF = ioff.get_ffmpeg_exe()
 
+def _ffmpeg_dir():
+    """yt-dlp needs an executable literally named 'ffmpeg' for partial downloads."""
+    import shutil
+    d = os.path.join(settings.output_dir, "ffbin")
+    dst = os.path.join(d, "ffmpeg")
+    if not os.path.exists(dst):
+        try:
+            os.makedirs(d, exist_ok=True)
+            shutil.copy(FF, dst)
+            os.chmod(dst, 0o755)
+        except Exception:
+            return None
+    return d
+
 
 def _safe_name(s):
     s = re.sub(r"[^a-zA-Z0-9_-]+", "_", s or "clip")
@@ -90,6 +104,7 @@ def viral_clip(query, tag, dur=8):
             "format": "best[ext=mp4]/best",
             "outtmpl": raw,
             "noplaylist": True,
+            "ffmpeg_location": _ffmpeg_dir(),
             "download_ranges": lambda info, ydl: [
                 {"start_time": 5, "end_time": 5 + dur}
             ],

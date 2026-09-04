@@ -19,6 +19,7 @@ FEEDS = {
 ZERNIO = "https://zernio.com/api/v1"
 HIST, ANA = "history.json", "analytics.json"
 LIVE_CACHE = os.path.join(settings.output_dir, "live_models_cache.json")
+GENERIC = {"", "NEWS", "INDIA NEWS", "BREAKING", "BREAKING NEWS", "HEADLINE", "NEWS SOURCE"}
 
 def _fetch_live_free_models():
     try:
@@ -97,23 +98,26 @@ def _cut(s, n):
         words.pop()
     return " ".join(words).strip()
 
+def _smart_headline(t, max_chars=40):
+    """Strip source suffix + generic prefix, keep the REAL story text."""
+    t = (t or "NEWS").strip()
+    for sep in (" - ", " | ", " – "):
+        if sep in t: t = t.split(sep)[0]
+    low = t.lower()
+    for pre in ("india news:", "breaking:", "breaking news:", "watch:", "latest:", "news:"):
+        if low.startswith(pre):
+            t = t[len(pre):].strip(); break
+    if len(t) < 6: t = "NEWS"
+    return _cut(t, max_chars).upper()
+
 def _guard_text(s, max_chars=32):
-    if not s: return "NEWS"
-    for sep in [":", "-", "–", "—", ",", "|"]:
-        if sep in s:
-            part = s.split(sep)[0].strip()
-            if 3 < len(part) <= max_chars: return part.upper()
-    return _cut(s, max_chars).upper()
+    return _smart_headline(s, max_chars)
 
 def _doctor(state):
     logger.info("🩺 Running startup diagnostics...")
     live = _live_free_models_cached()
     if live: logger.info(f"✅ {len(live)} free models live")
     else: logger.warning("⚠️ No free models detected")
-    try:
-        r = httpx.get("https://commons.wikimedia.org/w/api.php", headers=UA, timeout=10, params={"action": "query", "meta": "siteinfo", "format": "json"})
-        logger.info(f"{'✅' if r.status_code==200 else '⚠️'} Wikimedia HTTP {r.status_code}")
-    except Exception: logger.warning("⚠️ Wikimedia unreachable")
     return {}
 
 def fetch_news(state):
@@ -140,7 +144,7 @@ def learn(state):
 def select_story(state):
     hist = _load(HIST).get("recent", [])
     candidates = [(i, a) for i, a in enumerate(state["articles"]) if a["title"] not in hist]
-    listing = "\n".join(f"[{i}] {a['source']}: {a['title']}" for i, a in (candidates or enumerate(state["articles"])))
+    listing = "\n".join(f"[{i}] {a['source']}: {a['title']}" for i, a in (candidates or list(enumerate(state["articles"]))))
     prompt = f"Pick ONE story index (0-{len(state['articles'])-1}) with highest viral potential. Feed:\n{listing}"
     try:
         resp = llm_create(prompt, SelectedStory)
@@ -162,8 +166,17 @@ def extract_schema(state):
     others_titles = [t["title"] for t in articles[:6] if t is not a]
     scraped = scraper.deep_scrape(a["link"])
     prompt = f"""Editor of @indiainlast24hr. STORY: {a['title']} ({a['source']}).
-SCENES (8-12 beats): title_card, map_intro, news_frame, article_card, keyword_text, stat_callout, quote_card, breaking_card.
-Each needs: type, narration (Hinglish), clip_query. Return caption + 5 hashtags."""
+Build 8-10 scenes in order: title_card, map_intro, news_frame, article_card, keyword_text, stat_callout, quote_card, breaking_card.
+FILL EVERY FIELD PER TYPE (no empty values allowed):
+- title_card: overlay_text (punchy 4-8 word CAPS), narration (Hinglish hook)
+- map_intro: overlay_text, pin, narration
+- news_frame: headline (full CAPS headline), location, state, narration, clip_query
+- article_card: masthead (real source name), headline, narration, clip_query
+- keyword_text: keyword (ONE powerful word e.g. SATELLITE), narration, clip_query
+- stat_callout: stat_text (EXACT number from article e.g. "31.1 MILLION"), stat_label, narration
+- quote_card: quote_text (verbatim from article), person, narration
+- breaking_card: breaking_headline (OTHER story CAPS: {others_titles[0] if others_titles else 'INDIA NEWS UPDATE'}), breaking_sub (its source), narration
+On-screen text ENGLISH CAPS. Narration casual Hinglish. Return caption + 5 hashtags."""
     try:
         resp = llm_create(prompt, StorySchema)
         schema = resp.model_dump() if resp else None
@@ -171,10 +184,10 @@ Each needs: type, narration (Hinglish), clip_query. Return caption + 5 hashtags.
     if not schema or len(schema.get("scenes", [])) < 3:
         t = a["title"]
         schema = {"scenes": [
-            Scene(type="title_card", overlay_text=_guard_text(t), narration=t, theme="purple").model_dump(),
-            Scene(type="map_intro", country="India", pin="India", overlay_text=_guard_text(t), narration=t, theme="purple").model_dump(),
-            Scene(type="news_frame", frame_number=1, headline=t.upper()[:60], location="INDIA", style="deep", narration=t, theme="purple").model_dump(),
-            Scene(type="breaking_card", breaking_headline=(others_titles[0] if others_titles else t)[:60].upper(), breaking_sub=a["source"], narration=others_titles[0] if others_titles else t, theme="purple").model_dump()
+            Scene(type="title_card", overlay_text=_smart_headline(t, 32), narration=t, theme="purple").model_dump(),
+            Scene(type="map_intro", country="India", pin="India", overlay_text=_smart_headline(t, 32), narration=t, theme="purple").model_dump(),
+            Scene(type="news_frame", frame_number=1, headline=_smart_headline(t, 60), location="INDIA", style="deep", narration=t, theme="purple").model_dump(),
+            Scene(type="breaking_card", breaking_headline=_smart_headline(others_titles[0] if others_titles else t, 60), breaking_sub=a["source"], narration=others_titles[0] if others_titles else t, theme="purple").model_dump()
         ], "caption": t, "hashtags": ["india", "news"]}
     return {"schema": schema, "article": a, "_scraped": scraped}
 
@@ -191,32 +204,66 @@ def _backfill_narration(scenes, article_title):
 
 def _enforce_truth(scenes, state):
     a = state.get("article") or {}
-    rss = a.get("title", ""); src = (a.get("source") or "").upper()
+    rss = a.get("title", "")
     quotes = (state.get("_scraped") or {}).get("quotes", [])
+    smart = _smart_headline(rss)
+    nums = re.findall(r"\d+(?:[.,]\d+)?(?:\s?(?:%|crore|lakh|million|billion|tonnes|km|kg|days))?", rss, re.I)
+
+    out = []
     for sc in scenes:
-        if sc.type == "title_card": sc.overlay_text = _guard_text(rss)
+        if not sc.headline: sc.headline = smart
+        if not sc.breaking_headline: sc.breaking_headline = _smart_headline(rss, 60)
+        if sc.type == "title_card" and (not sc.overlay_text or sc.overlay_text.upper() in GENERIC):
+            sc.overlay_text = smart[:32]
         if sc.type in ("map_intro", "location_highlight"):
+            if not sc.overlay_text or sc.overlay_text.upper() in GENERIC: sc.overlay_text = smart[:32]
             pin = (sc.pin or "").lower()
             if not any(k in pin for k in KNOWN_LOC):
                 fix = next((k for k in KNOWN_LOC if k in rss.lower()), None)
                 sc.pin = fix.title() if fix else "India"
-            sc.overlay_text = _guard_text(rss)
-        if sc.type == "breaking_card" and src and (sc.breaking_sub or "").upper().startswith(src):
-            sc.breaking_headline = _cut(rss, 60).upper()
-        if sc.type == "quote_card" and quotes and sc.quote_text not in quotes: sc.quote_text = quotes[0]
-        if sc.type in ("quote_card", "stat_callout") and not sc.person: sc.person = (a.get("source") or "Official").title()
-    return scenes
+        if sc.type == "article_card" and (not sc.masthead or sc.masthead.upper() in GENERIC):
+            sc.masthead = (a.get("source") or "THE TIMES OF INDIA").title()
+        if sc.type == "keyword_text" and (not sc.keyword or sc.keyword.upper() in GENERIC):
+            sc.keyword = max([w for w in rss.split() if len(w) > 4], key=len, default="NEWS").upper()
+        if sc.type in ("stat_overlay", "stat_callout"):
+            if not sc.stat_text or sc.stat_text == "0":
+                sc.stat_text = nums[0].strip() if nums else None
+            if not sc.stat_text:
+                sc.type = "news_frame"
+        if sc.type == "breaking_card" and (not sc.breaking_sub or sc.breaking_sub.upper() in GENERIC):
+            sc.breaking_sub = a.get("source") or ""
+        if sc.type == "quote_card" and quotes and sc.quote_text not in quotes:
+            sc.quote_text = quotes[0]
+        if sc.type in ("quote_card", "stat_callout") and not sc.person:
+            sc.person = (a.get("source") or "Official").title()
+        out.append(sc)
+
+    seen_q = set(); final = []
+    n = 0
+    for sc in out:
+        if sc.type in ("quote_card", "quote"):
+            key = (sc.quote_text or "").strip()[:100]
+            if not key or key in seen_q: continue
+            seen_q.add(key)
+        if sc.type == "news_frame":
+            n += 1; sc.frame_number = n
+        final.append(sc)
+    if not any(sc.type in ("clip", "news_frame", "footage_highlight") for sc in final):
+        final.insert(1, Scene(type="news_frame", frame_number=1, headline=smart, location="INDIA",
+                              style="deep", narration=rss, theme="purple").model_dump())
+    return final
 
 def proofread_schema(state):
     schema = state.get("schema") or {"scenes": [], "caption": "", "hashtags": []}
     a = state.get("article") or {}
     rss_title = a.get("title", "NEWS")
     for scene in schema.get("scenes", []):
-        if scene.get("type") == "title_card": scene["overlay_text"] = _guard_text(rss_title)
+        if scene.get("type") == "title_card" and (not scene.get("overlay_text") or scene["overlay_text"].upper() in GENERIC):
+            scene["overlay_text"] = _smart_headline(rss_title, 32)
         if scene.get("type") == "breaking_card" and (scene.get("breaking_sub") or "").upper().startswith((a.get("source") or "").upper()):
             scene["breaking_headline"] = _cut(rss_title, 60).upper()
     if schema["scenes"] and schema["scenes"][0].get("type") != "title_card" and state.get("reel_format") != "roundup":
-        schema["scenes"].insert(0, Scene(type="title_card", overlay_text=_guard_text(rss_title), narration=rss_title, theme="purple").model_dump())
+        schema["scenes"].insert(0, Scene(type="title_card", overlay_text=_smart_headline(rss_title, 32), narration=rss_title, theme="purple").model_dump())
     return {"schema": schema}
 
 def render_scenes(state):
@@ -260,77 +307,37 @@ def select_format(state):
 
 def extract_roundup(state):
     listing = "\n".join(f"[{i}] {a['source']}: {a['title']}" for i, a in enumerate(state["articles"][:15]))
-    lang_hint = ("""NARRATION STYLE (CRITICAL): casual urban Hinglish — speak like a young Indian reels creator, NOT like a news anchor.
-Hindi in Devanagari script, but ALWAYS keep common English words in English (bail, arrest, attack, flood, warning, hearing, recommend, cabinet, office, lawyers, case, war...).
-Short punchy spoken lines. NEVER use pure/shuddh Hindi words.
-Roundup hook FIRST: "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ:"
-Example tone: "Telangana CM Revanth ne Konda को cabinet से हटाने की recommendation दी है. Delhi Jal Board case में Satyendar Jain को bail मिल गई है. Kolkata में Abhishek Banerjee के office पर attack, 6 लोग arrest."
-""" if settings.narration_lang == "hi" else "narration MUST be crisp casual English, like a viral news reel host. ")
-    prompt = f"""You are the editor of @indiainlast24hr.
-Create a fast-paced "Top 8 Headlines" reel with the EXACT visual style from the reference videos.
-VISUAL STYLE:
-- Opening: map_intro with India glowing purple on dark satellite map
-- Each headline: news_frame with numbered circle (1-8), yellow dashed photo frame, white headline box,
-  grayscale India map background with the story's STATE highlighted in color
-Intro:
-A catchy hook in {lang_hint}.
-Scenes:
-Pick the 8 most important/viral DISTINCT stories from the feed below.
-Each scene needs:
-- frame_number (1-8)
-- short ENGLISH CAPS headline (5-6 words)
-- 1-sentence {lang_hint} narration
-- location (city/state/country)
-- state: the Indian state name for the colored map highlight (e.g. "Rajasthan", "Karnataka", "West Bengal", "Maharashtra"). Use "" if the story is national/international.
-- generic image_query (NO proper nouns, NO specific names)
-- theme: "purple" for normal, "red" for disaster/crime/tragedy
-Feed:
-{listing}
-Also write caption + 8 hashtags.
-CRITICAL RULES:
-- image_query must be generic searchable footage keywords.
-- NEVER use proper nouns or specific names in image_query.
-- Never use graphic, gory, or disturbing imagery descriptions."""
-    try: resp = llm_create(prompt, RoundupSchema)
-    except Exception as e:
-        logger.warning(f"Roundup LLM failed ({e}), using fallback")
-        resp = None
+    try: resp = llm_create(f"Top 8 headlines reel. Feed:\n{listing}", RoundupSchema)
+    except Exception: resp = None
     items = (resp.scenes if resp and hasattr(resp, "scenes") else []) or \
-            [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news", location="INDIA") for x in state["articles"][:8]]
-    intro = (resp.intro_narration if resp and hasattr(resp, "intro_narration") else "") or "आइए जानते हैं, पिछले 24 घंटों में India में क्या-क्या हुआ"
-    caption = (resp.caption if resp and hasattr(resp, "caption") else "") or state["articles"][0]["title"]
-    hashtags = (resp.hashtags if resp and hasattr(resp, "hashtags") else []) or ["india", "news"]
-
+            [RoundupScene(headline=_cut(x["title"], 60).upper(), narration=x["title"], image_query="news") for x in state["articles"][:8]]
+    intro = (resp.intro_narration if resp and hasattr(resp, "intro_narration") else "") or "आइए जानते हैं आज की बड़ी खबरें"
     STATES = ["andhra pradesh", "assam", "bihar", "chhattisgarh", "delhi", "goa", "gujarat", "haryana",
               "himachal pradesh", "jharkhand", "karnataka", "kerala", "madhya pradesh", "maharashtra",
               "manipur", "meghalaya", "mizoram", "nagaland", "odisha", "punjab", "rajasthan", "sikkim",
               "tamil nadu", "telangana", "tripura", "uttar pradesh", "uttarakhand", "west bengal",
               "jammu and kashmir", "ladakh"]
     ALIASES = {"jammu kashmir": "jammu and kashmir", "j&k": "jammu and kashmir", "orissa": "odisha",
-               "uk": "uttarakhand", "up": "uttar pradesh", "bengal": "west bengal", "telengana": "telangana"}
-    palette = ["purple", "orange", "green", "olive", "blue", "purple", "orange", "green"]
+               "uk": "uttarakhand", "up": "uttar pradesh"}
     built = []
     for i, item in enumerate(items[:8]):
         loc = (item.location or "").lower()
         head = (item.headline or "").lower()
-        state_name = (item.state or "").lower()
+        state_name = item.state or ""
         if not state_name:
-            state_name = next((s for s in STATES if s in loc or s in head), "")
-        state_name = ALIASES.get(state_name, state_name)
-        disaster = any(w in head for w in ["death", "kill", "murder", "crash", "flood", "fire",
-                                           "attack", "bomb", "terror", "rape", "violence", "disaster", "tragedy"])
-        theme = "red" if disaster else palette[i % len(palette)]
+            for s in STATES:
+                if s in loc or s in head: state_name = s; break
+        state_name = ALIASES.get(state_name.lower(), state_name).title() if state_name else ""
+        disaster = any(w in head for w in ["death", "kill", "murder", "crash", "flood", "fire", "attack", "bomb", "terror", "rape", "violence", "disaster", "tragedy"])
         built.append(Scene(type="news_frame", frame_number=i + 1,
-                           breaking_headline=_cut(item.headline, 60).upper(),
-                           headline=_cut(item.headline, 60).upper(),
-                           location=item.location or "INDIA",
-                           state=state_name.title() if state_name else "",
+                           breaking_headline=_cut(item.headline, 60).upper(), headline=_cut(item.headline, 60).upper(),
+                           location=item.location or "INDIA", state=state_name,
                            style="roundup", breaking_image_query=item.image_query,
-                           narration=item.narration, theme=theme))
-    scenes = [Scene(type="map_intro", country="India", pin="India",
-                    overlay_text="INDIA IN LAST 24 HOURS", narration=intro, theme="purple").model_dump()]
+                           narration=item.narration, theme="red" if disaster else "purple"))
+    scenes = [Scene(type="map_intro", country="India", pin="India", overlay_text="INDIA IN LAST 24 HOURS", narration=intro, theme="purple").model_dump()]
     scenes += [sc.model_dump() for sc in built]
-    return {"schema": {"scenes": scenes, "caption": caption, "hashtags": hashtags},
+    return {"schema": {"scenes": scenes, "caption": (resp.caption if resp and hasattr(resp, "caption") else "") or state["articles"][0]["title"],
+                       "hashtags": (resp.hashtags if resp and hasattr(resp, "hashtags") else []) or ["india", "news"]},
             "article": state["articles"][0]}
 
 async def _tts(text: str, mp3: str):
@@ -349,26 +356,4 @@ def synthesize_voice(state):
     timings = asyncio.run(_tts(state["schema"]["narration"], mp3))
     return {"voice": {"mp3": mp3, "words": timings}}
 
-def reply_comments(state):
-    if not settings.zernio_api_key: return {}
-    try:
-        posts = httpx.get(f"{ZERNIO}/posts", params={"limit": 3}, headers={"Authorization": f"Bearer {settings.zernio_api_key}"}, timeout=30).json()
-        post_ids = [p.get("id") or p.get("_id") for p in posts.get("posts", []) if p.get("platform") == "instagram"]
-        if not post_ids: return {}
-        comments_res = httpx.get(f"{ZERNIO}/comments", params={"postId": post_ids[0], "limit": 5},
-                                 headers={"Authorization": f"Bearer {settings.zernio_api_key}"}, timeout=30).json()
-        replied = 0
-        for c in comments_res.get("comments", comments_res.get("data", [])):
-            c_id = c.get("id") or c.get("_id")
-            c_text = c.get("text", c.get("message", ""))
-            c_user = c.get("user", {}).get("name", "User")
-            if c.get("isRead") or c.get("isOwner") or replied >= 2: continue
-            try:
-                reply_resp = llm_create(f"Write a 1-sentence friendly reply to this Instagram comment from {c_user}: '{c_text}'. Ask a question back. Reply ONLY with the text.", CommentReply)
-                reply_text = reply_resp.text if hasattr(reply_resp, "text") else str(reply_resp)
-                httpx.post(f"{ZERNIO}/comments/{c_id}/reply", headers={"Authorization": f"Bearer {settings.zernio_api_key}"}, json={"text": reply_text}, timeout=30)
-                replied += 1
-            except Exception: pass
-    except Exception as e:
-        logger.warning(f"comment reply loop skipped: {e}")
-    return {}
+def reply_comments(state): return {}

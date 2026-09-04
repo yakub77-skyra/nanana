@@ -1,5 +1,6 @@
-import re, os
+import re, os, shutil
 import httpx, trafilatura
+import imageio_ffmpeg as _ioff
 from pathlib import Path
 from loguru import logger
 from .config import settings
@@ -10,6 +11,22 @@ MOBILE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit
              "(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
 RAW = Path(settings.output_dir).resolve() / "raw"
 _html_cache = {}
+
+_FF = _ioff.get_ffmpeg_exe()
+
+def _ffmpeg_dir():
+    """yt-dlp needs an executable literally named 'ffmpeg' for partial downloads.
+    imageio_ffmpeg ships 'ffmpeg-linux-x86_64-v7.0.2', so we copy it as 'ffmpeg'."""
+    d = os.path.join(settings.output_dir, "ffbin")
+    dst = os.path.join(d, "ffmpeg" + (".exe" if os.name == "nt" else ""))
+    if not os.path.exists(dst):
+        try:
+            os.makedirs(d, exist_ok=True)
+            shutil.copy(_FF, dst)
+            os.chmod(dst, 0o755)
+        except Exception:
+            return None
+    return d
 
 def get_html(url):
     if url not in _html_cache:
@@ -80,13 +97,18 @@ def embedded_videos(url):
     return list(dict.fromkeys(urls))[:4]
 
 def clip_from_urls(urls, path, dur=8):
+    """Download real embedded video. ffmpeg_location fixes the
+    'partial download needs ffmpeg' abort that killed every clip before."""
     if not urls: return None
     try:
         import yt_dlp
+        ffdir = _ffmpeg_dir()
         for u in urls:
             try:
                 opts = {"quiet": True, "format": "best[ext=mp4]/best", "outtmpl": path,
                         "download_ranges": lambda i, y: [{"start_time": 3, "end_time": 3 + dur}]}
+                if ffdir:
+                    opts["ffmpeg_location"] = ffdir
                 try:
                     with yt_dlp.YoutubeDL(opts) as y: y.download([u])
                 except Exception:
@@ -149,7 +171,7 @@ HIDE_JUNK_CSS = """aside,iframe,nav,footer,[class*="advert"],[id*="advert"],[cla
 [class*="subscribe"],[class*="share"],[class*="ad-slot"],[id*="ad-slot"],[class*="ads"],[id*="ads"],
 [id*="gpt"],[class*="gpt"],[class*="-ad-"],[id*="-ad-"],[class*="ad_"],[id*="ad_"],
 [class*="outbrain"],[id*="outbrain"],[class*="taboola"],[id*="taboola"],
-[class*="recommended"],[class*="related"],[class*="paywall"]{display:none!important}
+[class*="recommended"],[id*="related"],[class*="paywall"]{display:none!important}
 body{overflow-x:hidden!important}"""
 
 KARAOKE_CSS = (".w{position:relative;display:inline-block;margin-right:.25ch}"
@@ -187,7 +209,7 @@ def mobile_record(url, name, dur, delays=None, scroll=False):
             pg.wait_for_timeout(400)
             if scroll:
                 for _ in range(max(1, int(dur * 2))):
-                    pg.mouse.wheel(0, 260); pg.wait_for_timeout(500)
+                    pg.mouse.wheel(0, 260); pg.mouse and pg.wait_for_timeout(500)
             else:
                 pg.wait_for_timeout(int(dur * 1000))
             v = pg.video; pg.close(); out = v.path(); ctx.close(); b.close()
