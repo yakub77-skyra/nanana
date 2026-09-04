@@ -2,7 +2,7 @@ import sys
 from loguru import logger
 from agent.graph import build
 
-BUILD = "P7.1-hardened"
+BUILD = "P8.0-reference"
 
 if __name__ == "__main__":
     logger.info(f"🧬 BUILD {BUILD} — Autonomous News Agent starting…")
