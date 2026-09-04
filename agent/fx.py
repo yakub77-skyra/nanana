@@ -190,9 +190,11 @@ def _bg_layer(sat_b64, blur=0, bright=0.5):
     </svg>'''
 
 def _map_defs(c):
+    g2 = c.get('glow2', c['glow'])
+    g3 = c.get('glow3', g2)
     return f"""<defs>
       <linearGradient id="countryGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="{c['glow']}"/><stop offset="55%" stop-color="{c['glow2']}"/><stop offset="100%" stop-color="{c.get('glow3', c['glow2'])}"/>
+        <stop offset="0%" stop-color="{c['glow']}"/><stop offset="55%" stop-color="{g2}"/><stop offset="100%" stop-color="{g3}"/>
       </linearGradient>
       <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
       <filter id="glowBright" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>

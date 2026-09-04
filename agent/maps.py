@@ -82,7 +82,9 @@ def stitch_map(center_lon, center_lat, z, grid_w=3, grid_h=4):
     
     # Grayscale and darken for the "satellite" look
     stitched = ImageOps.grayscale(stitched).convert("RGB")
-    stitched = ImageOps.enhance(stitched) # slightly boost
+    # PIL.ImageOps has no enhance method, use ImageEnhance instead
+    from PIL import ImageEnhance
+    stitched = ImageEnhance.Contrast(stitched).enhance(1.2)
     
     # Calculate centroid pixel in the stitched image
     px_x = (cx_tile - start_x) * 256
