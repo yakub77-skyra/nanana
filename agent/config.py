@@ -24,6 +24,9 @@ class Settings(BaseSettings):
         "microsoft/phi-3-medium-4k-instruct:free,"
         "google/gemma-2-9b-it:free,"
         "qwen/qwen-2-7b-instruct:free"
+        "nvidia/nemotron-3.5-lightning:free"
+        "z-ai/glm-5.2:free"
+        "inclusionai/ling-3.0-flash-fin:free"
     )
 
     # TTS
