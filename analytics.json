@@ -1,5 +1,67 @@
 [
  {
+  "_id": "6a9ae461957eaf688a5f8367",
+  "userId": {
+   "_id": "6a6e34c9c4d0e314ea782eb2",
+   "name": "Mohammed Yakub",
+   "email": "mohammedyakubpasha880@gmail.com",
+   "image": "https://lh3.googleusercontent.com/a/ACg8ocIn4BxF5b3tPPSwoLDNvH2asjN-fX518EripQDIg_pmksri1w=s96-c"
+  },
+  "title": "",
+  "content": "\ud83e\udd23 Wait for it...\n\nsagdaki\n\nFollow for more daily laughs! \u27a1\ufe0f\n\n#funny #comedy #reels #explore #fyp",
+  "mediaItems": [
+   {
+    "type": "video",
+    "url": "https://v1.pinimg.com/videos/mc/expMp4/2c/aa/8c/2caa8c2e6ec7a1bb81b22a842bc79cd1_t1.mp4",
+    "_id": "6a9ae461957eaf688a5f8368"
+   }
+  ],
+  "platforms": [
+   {
+    "platform": "instagram",
+    "accountId": {
+     "_id": "6a6e3541df17280d939c7c5e",
+     "platform": "instagram",
+     "profileId": "6a6e34c9c4d0e314ea782f10",
+     "displayName": "studydying",
+     "isActive": true,
+     "profilePicture": "https://scontent-lhr11-1.cdninstagram.com/v/t51.82787-19/766052831_17977083864081308_4998037959198448065_n.jpg?stp=dst-jpg_s206x206_tt6&_nc_cat=106&ccb=7-5&_nc_sid=bf7eb4&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLnd3dy4yMzYuQzMifQ%3D%3D&_nc_ohc=D1ygKBaQXRgQ7kNvwEcMAoN&_nc_oc=AdpGxmN4im3fnSB--kwQbWEx9nVkPtlwTJwluF8STbyJWLtW4vSLcpcIL7mmx00SEpg&_nc_zt=24&_nc_ht=scontent-lhr11-1.cdninstagram.com&edm=AP4hL3IEAAAA&_nc_gid=0W7Jzq7987NwmsoHVSx3xw&_nc_tpa=Q5bMBQLrt5QMyZSp340bDuGAoVkLJF2QKEDPU7Ap_s4Oxm9FnlqucostO1WBjJI8l8CZEyZ_BpMV5uTH9Q&oh=00_AQI7n5qy9n1eKqdVLHUaXQMZW-7AQAtu1JcW1Uqsnj6AHg&oe=6AA01ABC",
+     "username": "studydyeing"
+    },
+    "profileId": "6a6e34c9c4d0e314ea782f10",
+    "customMedia": [],
+    "scheduledFor": "2026-09-05T05:30:00.000Z",
+    "status": "pending",
+    "publishAttempts": 0,
+    "contentHash": "a13594b668bdd9dc675262186558bf99",
+    "_id": "6a9ae461957eaf688a5f8369"
+   }
+  ],
+  "scheduledFor": "2026-09-05T05:30:00.000Z",
+  "timezone": "Asia/Kolkata",
+  "status": "scheduled",
+  "tags": [],
+  "hashtags": [],
+  "mentions": [],
+  "visibility": "public",
+  "crosspostingEnabled": true,
+  "metadata": {
+   "usageCounted": true
+  },
+  "publishAttempts": 0,
+  "recycling": {
+   "enabled": false,
+   "gapFreq": "month",
+   "recycleCount": 0,
+   "contentVariations": [],
+   "contentVariationIndex": 0
+  },
+  "createdAt": "2026-09-04T15:31:45.160Z",
+  "updatedAt": "2026-09-04T15:31:45.160Z",
+  "__v": 0,
+  "origin": "zernio"
+ },
+ {
   "_id": "6a9a7f8f8c56b6ac095849fe",
   "userId": {
    "_id": "6a6e34c9c4d0e314ea782eb2",
@@ -724,72 +786,6 @@
   "updatedAt": "2026-08-22T05:31:38.806Z",
   "__v": 0,
   "publishingClaimedAt": "2026-08-22T05:30:03.737Z",
-  "origin": "zernio"
- },
- {
-  "_id": "6a87d47b3c8dec2b02ce9e70",
-  "userId": {
-   "_id": "6a6e34c9c4d0e314ea782eb2",
-   "name": "Mohammed Yakub",
-   "email": "mohammedyakubpasha880@gmail.com",
-   "image": "https://lh3.googleusercontent.com/a/ACg8ocIn4BxF5b3tPPSwoLDNvH2asjN-fX518EripQDIg_pmksri1w=s96-c"
-  },
-  "title": "",
-  "content": "\ud83c\udfaf Tag someone who needs to see this!\n\nBillionaire Mindset: Unlock Your Attitude for Success and Money\n\nDouble tap if this made you laugh! \u2764\ufe0f\n\n#funny #comedy #reels #explore #fyp",
-  "mediaItems": [
-   {
-    "type": "video",
-    "url": "https://v1.pinimg.com/videos/mc/expMp4/da/ab/fa/daabfa27ceb5a91bab9f41e513ba3bbe_t1.mp4",
-    "_id": "6a87d47b3c8dec2b02ce9e71"
-   }
-  ],
-  "platforms": [
-   {
-    "platform": "instagram",
-    "accountId": {
-     "_id": "6a6e3541df17280d939c7c5e",
-     "platform": "instagram",
-     "profileId": "6a6e34c9c4d0e314ea782f10",
-     "displayName": "studydying",
-     "isActive": true,
-     "profilePicture": "https://scontent-lhr11-1.cdninstagram.com/v/t51.82787-19/766052831_17977083864081308_4998037959198448065_n.jpg?stp=dst-jpg_s206x206_tt6&_nc_cat=106&ccb=7-5&_nc_sid=bf7eb4&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLnd3dy4yMzYuQzMifQ%3D%3D&_nc_ohc=D1ygKBaQXRgQ7kNvwEcMAoN&_nc_oc=AdpGxmN4im3fnSB--kwQbWEx9nVkPtlwTJwluF8STbyJWLtW4vSLcpcIL7mmx00SEpg&_nc_zt=24&_nc_ht=scontent-lhr11-1.cdninstagram.com&edm=AP4hL3IEAAAA&_nc_gid=0W7Jzq7987NwmsoHVSx3xw&_nc_tpa=Q5bMBQLrt5QMyZSp340bDuGAoVkLJF2QKEDPU7Ap_s4Oxm9FnlqucostO1WBjJI8l8CZEyZ_BpMV5uTH9Q&oh=00_AQI7n5qy9n1eKqdVLHUaXQMZW-7AQAtu1JcW1Uqsnj6AHg&oe=6AA01ABC",
-     "username": "studydyeing"
-    },
-    "profileId": "6a6e34c9c4d0e314ea782f10",
-    "customMedia": [],
-    "scheduledFor": "2026-08-21T09:30:00.000Z",
-    "status": "published",
-    "publishAttempts": 1,
-    "contentHash": "cc15f0ed090b64c368f5cea69a344e17",
-    "_id": "6a87d47b3c8dec2b02ce9e72",
-    "platformPostId": "18023677058902222",
-    "platformPostUrl": "https://www.instagram.com/reel/DcTBb0AjOPe/",
-    "publishedAt": "2026-08-21T09:32:31.190Z"
-   }
-  ],
-  "scheduledFor": "2026-08-21T09:30:00.000Z",
-  "timezone": "Asia/Kolkata",
-  "status": "published",
-  "tags": [],
-  "hashtags": [],
-  "mentions": [],
-  "visibility": "public",
-  "crosspostingEnabled": true,
-  "metadata": {
-   "usageCounted": true
-  },
-  "publishAttempts": 0,
-  "recycling": {
-   "enabled": false,
-   "gapFreq": "month",
-   "recycleCount": 0,
-   "contentVariations": [],
-   "contentVariationIndex": 0
-  },
-  "createdAt": "2026-08-21T04:30:51.683Z",
-  "updatedAt": "2026-08-21T09:32:31.681Z",
-  "__v": 0,
-  "publishingClaimedAt": "2026-08-21T09:30:37.781Z",
   "origin": "zernio"
  }
 ]
