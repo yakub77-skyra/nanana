@@ -103,6 +103,21 @@ def _ken_burns_mp4(img_path, out_path, dur):
                     "-t", f"{dur:.2f}", "-c:v", "libx264", "-pix_fmt", "yuv420p", out_path],
                    check=True, capture_output=True)
 
+def _embed_webm(video_path, dur):
+    """Playwright's Chromium has no H.264 — transcode embeds to VP8 webm."""
+    if not video_path: return "", ""
+    out = video_path.replace(".mp4", "_embed.webm")
+    try:
+        subprocess.run([FF, "-y", "-i", video_path, "-t", f"{min(dur, 6):.2f}",
+                        "-vf", "scale=720:-2:flags=lanczos,fps=24",
+                        "-c:v", "libvpx", "-b:v", "900k", "-an", out],
+                       check=True, capture_output=True)
+        b64 = fx._b64_or_empty(out)
+        if b64: return b64, "video/webm"
+    except Exception as e:
+        logger.warning(f"webm embed failed → photo fallback ({e})")
+    return "", ""
+
 def _get_bg_image(scene, i):
     img = os.path.join(settings.output_dir, f"bg_{i}.jpg")
     q = scene.clip_query or scene.breaking_image_query or scene.breaking_headline or "news"
@@ -200,16 +215,16 @@ def render_scene(scene, i, vo=None, fmt="deep_dive"):
         map_pack = None
         if style == "roundup" and scene.state:
             from . import maps
-            map_pack = maps.build_state_pack(scene.state)
+            map_pack = maps.state_pack(scene.state)
         video_path = _scene_video(scene, i, dur)
-        video_b64 = base64.b64encode(Path(video_path).read_bytes()).decode() if video_path else ""
+        video_b64, video_mime = _embed_webm(video_path, dur)
         photo_b64 = _get_photo_b64(scene, i)
         html = fx.news_frame_html(
             scene.frame_number or (i + 1),
             scene.headline or scene.breaking_headline or "HEADLINE",
             photo_b64, scene.location or scene.pin or "INDIA", dur,
             theme=scene.theme or "purple", style=style, state=scene.state or None,
-            video_b64=video_b64, video_mime="video/mp4", map_pack=map_pack)
+            video_b64=video_b64, video_mime=video_mime, map_pack=map_pack)
         webm = fx.record_html(html, dur, f"nf{i}"); _seg_mux(webm, vo, out, dur)
 
     elif scene.type == "article_card":

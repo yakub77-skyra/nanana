@@ -1,5 +1,9 @@
+import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# C: is often full — keep the Playwright browser on the workspace drive
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", r"E:\playwright-browsers")
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -7,6 +11,8 @@ class Settings(BaseSettings):
     output_dir: str = "output"
     ig_handle: str = "@INDIAINLAST24HR"
     narration_lang: str = "hi"
+    default_format: str = "roundup"   # roundup = reference map-reel style; auto = time-based
+    stories_count: int = 5            # stories per roundup reel
 
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_api_key: str = ""

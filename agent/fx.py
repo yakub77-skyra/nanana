@@ -214,40 +214,52 @@ html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-famil
 @keyframes zin{{0%{{opacity:0;transform:translateY(-50%) scale(0.85)}}25%{{opacity:1}}100%{{opacity:1;transform:translateY(-50%) scale(1.06)}}}}
 </style></head><body><div id="glowbg"></div><div id="txt">{safe}</div></body></html>"""
 
-# ---------------- SCENE: map intro (real satellite + clouds + optional topic pin) ----------------
+# ---------------- shared watermark (IG handle, like the reference) ----------------
+def _watermark(pos="bl"):
+    handle = _html.escape(settings.ig_handle or "@INDIAINLAST24HR")
+    if pos == "tr":
+        style = "position:absolute;right:44px;top:330px;z-index:60"
+    else:
+        style = "position:absolute;left:44px;bottom:56px;z-index:60"
+    return f"""<div id="wm" style="{style};display:flex;align-items:center;gap:14px;opacity:0.92;text-shadow:0 2px 8px #000">
+<rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg><span>{handle}</span></div>
+<style>#wm{{position:absolute;left:44px;bottom:56px;z-index:60;display:flex;align-items:center;gap:14px;opacity:0.92;text-shadow:0 2px 8px #000}}
+#wm svg{{width:44px;height:44px}}#wm span{{color:#fff;font-weight:800;font-size:30px;letter-spacing:1px}}</style>"""
+
+# ---------------- SCENE: map intro (gradient India fill over satellite map) ----------------
 def map_intro_html(country, overlay_text, dur, theme="purple", topic_img=None, pin=None):
     from . import maps
-    bg_b64 = maps.build_india_pack()
-    colors = {"purple": {"glow": "#c026d3", "glow2": "#7c3aed"}, "red": {"glow": "#dc2626", "glow2": "#991b1b"}, "blue": {"glow": "#2563eb", "glow2": "#1e40af"}}
-    c = colors.get(theme, colors["purple"])
-    pin_b64 = _b64_or_empty(topic_img)
-    pin_html = f"""<div id="pinwrap"><svg id="arcs" width="600" height="600" viewBox="0 0 600 600">
-      <path d="M300 300 C 180 220, 90 200, 10 160" stroke="#fff" stroke-width="3" fill="none" opacity="0.8"/>
-      <path d="M300 300 C 420 220, 510 200, 590 160" stroke="#fff" stroke-width="3" fill="none" opacity="0.8"/>
-      <path d="M300 300 C 200 400, 120 440, 40 480" stroke="#fff" stroke-width="3" fill="none" opacity="0.8"/>
-      <path d="M300 300 C 400 400, 480 440, 560 480" stroke="#fff" stroke-width="3" fill="none" opacity="0.8"/></svg>
-    <div id="pinring"><img src="data:image/jpeg;base64,{pin_b64}"/></div>
-    <div id="pinlabel">{_html.escape(pin or 'INDIA')}</div></div>""" if pin_b64 else ""
+    pack = maps.base_pack()
+    bg_b64 = pack["bg_b64"]
+    path_d = pack["india_path"] or 'M540 700 L760 620 L840 800 L700 1250 L520 1300 L380 1050 L360 820 Z'
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{width:1080px;height:1920px;background:#050505;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
-#bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:grayscale(1) brightness(0.4);animation:slowZoom {dur}s ease-in-out forwards}}
-@keyframes slowZoom{{from{{transform:scale(1)}}to{{transform:scale(1.15)}}}}
-#clouds{{position:absolute;inset:0;background:radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.15), transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(255,255,255,0.1), transparent 60%);animation:drift {dur}s linear infinite}}
+#bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;animation:slowZoom {dur}s ease-in-out forwards}}
+@keyframes slowZoom{{from{{transform:scale(1)}}to{{transform:scale(1.12)}}}}
+#clouds{{position:absolute;inset:0;background:radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.13), transparent 60%), radial-gradient(ellipse at 70% 80%, rgba(255,255,255,0.09), transparent 60%);animation:drift {dur}s linear infinite;z-index:5}}
 @keyframes drift{{from{{transform:translateX(-50px)}}to{{transform:translateX(50px)}}}}
-#overlay-text{{position:absolute;top:35%;left:0;width:100%;text-align:center;color:#fff;font-weight:900;font-size:64px;letter-spacing:2px;text-transform:uppercase;text-shadow:0 4px 30px rgba(0,0,0,0.9), 0 0 60px {c['glow']};padding:0 60px;line-height:1.25;animation:textFade 1.5s ease-out forwards}}
+#overlay-text{{position:absolute;top:14%;left:0;width:100%;text-align:center;color:#fff;font-weight:900;font-size:60px;letter-spacing:2px;text-transform:uppercase;text-shadow:0 4px 30px rgba(0,0,0,0.95);padding:0 60px;line-height:1.25;z-index:10;animation:textFade 1.2s ease-out forwards;opacity:0}}
 @keyframes textFade{{0%{{opacity:0;transform:translateY(40px)}}100%{{opacity:1;transform:translateY(0)}}}}
-#pinwrap{{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:600px;height:600px;animation:pinPop 0.7s 0.6s ease-out forwards;opacity:0}}
-@keyframes pinPop{{from{{opacity:0;transform:translate(-50%,-50%) scale(0.5)}}to{{opacity:1;transform:translate(-50%,-50%) scale(1)}}}}
-#arcs{{position:absolute;inset:0}}
-#pinring{{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:190px;height:190px;border-radius:50%;border:5px solid #fff;overflow:hidden;box-shadow:0 0 50px {c['glow2']};background:#111}}
-#pinring img{{width:100%;height:100%;object-fit:cover}}
-#pinlabel{{position:absolute;left:50%;top:63%;transform:translateX(-50%);background:#fff;color:#8b0000;font-weight:900;font-size:34px;letter-spacing:2px;padding:8px 26px;border-radius:8px}}
 </style></head><body>
 <img id="bg" src="data:image/jpeg;base64,{bg_b64}"/>
 <div id="clouds"></div>
-{pin_html}
-<div id="overlay-text">{_html.escape(overlay_text or "INDIA NEWS")}</div>
+<svg style="position:absolute;inset:0;z-index:6" width="1080" height="1920" viewBox="0 0 1080 1920">
+  <defs>
+    <linearGradient id="introGrad" x1="0%" y1="0%" x2="15%" y2="100%">
+      <stop offset="0%" stop-color="#ff1fa4"/><stop offset="45%" stop-color="#c026d3"/>
+      <stop offset="75%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#4438e0"/>
+    </linearGradient>
+    <filter id="iglow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="10" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <path d="{path_d}" fill="url(#introGrad)" fill-opacity="0.9" stroke="#fff" stroke-width="2.5"
+        filter="url(#iglow)" style="animation:countryIn 1.1s cubic-bezier(0.2,0.7,0.3,1) forwards, fillPulse 2.6s 1.2s ease-in-out infinite"/>
+  <path d="{path_d}" fill="none" stroke="#ffffff" stroke-width="6" opacity="0.35" filter="url(#iglow)"/>
+</svg>
+<style>@keyframes countryIn{{0%{{opacity:0;transform:scale(0.6);transform-origin:540px 960px}}100%{{opacity:1;transform:scale(1);transform-origin:540px 960px}}}}
+@keyframes fillPulse{{0%,100%{{fill-opacity:0.82}}50%{{fill-opacity:0.98}}}}</style>
+<div id="overlay-text">{_html.escape(overlay_text or "INDIA IN LAST 24 HOURS")}</div>
+{_watermark()}
 </body></html>"""
 
 # ---------------- SCENE: news frame (roundup zoom-to-state + deep fallback) ----------------
@@ -265,44 +277,68 @@ def news_frame_html(number, headline, photo_b64, location, dur, theme="purple",
     if style == "roundup" and map_pack:
         bg_b64 = map_pack.get("bg_b64", "")
         state_svg = map_pack.get("state_svg", "")
+        outline = map_pack.get("outline", "")
         cx = map_pack.get("cx", 540); cy = map_pack.get("cy", 960)
-        frame_top = "1080px" if cy < 900 else "90px"
+        card_top = (number or 1) % 2 == 1
         if video_b64:
             media_html = f'<video src="data:{video_mime};base64,{video_b64}" autoplay muted loop playsinline></video>'
         elif photo_b64:
             media_html = f'<img src="data:image/jpeg;base64,{photo_b64}" style="animation:kb {dur}s linear forwards"/>'
         else:
             media_html = '<div class="no-photo"></div>'
+        # connector runs from the marker circle to the card edge with a yellow bow
+        if card_top:
+            card_edge, circle_edge = 760.0, cy - 70
+            bow = 90 if cx > 540 else -90
+            d_path = f"M {cx:.0f} {circle_edge:.0f} Q {min(max(cx + bow, 40), 1040):.0f} {(card_edge + circle_edge) / 2:.0f}, {cx:.0f} {card_edge:.0f}"
+        else:
+            card_edge, circle_edge = 1150.0, cy + 70
+            bow = 90 if cx > 540 else -90
+            d_path = f"M {cx:.0f} {circle_edge:.0f} Q {min(max(cx + bow, 40), 1040):.0f} {(card_edge + circle_edge) / 2:.0f}, {cx:.0f} {card_edge:.0f}"
         return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{width:1080px;height:1920px;background:#000;overflow:hidden;font-family:Arial,Helvetica,sans-serif}}
-#map-wrapper{{position:absolute;inset:0;transform-origin:{cx}px {cy}px;animation:zoomState {dur}s cubic-bezier(0.25,0.1,0.25,1) forwards}}
-@keyframes zoomState{{0%{{transform:scale(1)}}100%{{transform:scale(2.8)}}}}
-#map-bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;filter:grayscale(1) brightness(0.5)}}
+#map-wrapper{{position:absolute;inset:0;transform-origin:{cx:.0f}px {cy:.0f}px;animation:zoomState {dur}s ease-in-out forwards}}
+@keyframes zoomState{{0%{{transform:scale(2.1)}}100%{{transform:scale(1.9)}}}}
+#map-bg{{position:absolute;inset:0;width:100%;height:100%;object-fit:fill}}
 #state-svg{{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}}
-#state-path{{fill:{c['state']};opacity:0.75;stroke:#fff;stroke-width:2;animation:pulse 2s infinite}}
-@keyframes pulse{{0%,100%{{opacity:0.6}}50%{{opacity:0.9}}}}
-#frame-wrap{{position:absolute;top:{frame_top};left:50%;transform:translateX(-50%);width:940px;z-index:20;animation:frameIn 0.6s 0.5s ease-out forwards;opacity:0}}
-@keyframes frameIn{{from{{opacity:0;transform:translateX(-50%) translateY(40px)}}to{{opacity:1;transform:translateX(-50%) translateY(0)}}}}
-#photo-frame{{width:940px;height:520px;border:4px dashed #d4e300;border-radius:6px;overflow:hidden;box-shadow:0 0 40px rgba(212,227,0,0.3)}}
-#photo-frame img, #photo-frame video, .no-photo{{width:100%;height:100%;object-fit:cover}}
+#state-path{{fill:{c['state']};fill-opacity:0.85;stroke:#fff;stroke-width:2.5;filter:url(#sglow);animation:pulse 2s infinite}}
+#outline-path{{fill:none;stroke:#fff;stroke-width:1;opacity:0.5}}
+@keyframes pulse{{0%,100%{{fill-opacity:0.72}}50%{{fill-opacity:0.92}}}}
+#frame-wrap{{position:absolute;{'top:110px' if card_top else 'bottom:110px'};left:50%;transform:translateX(-50%);width:940px;z-index:20;animation:frameIn 0.6s 0.35s ease-out forwards;opacity:0}}
+@keyframes frameIn{{from{{opacity:0;transform:translateX(-50%) translateY({'40px' if card_top else '-40px'})}}to{{opacity:1;transform:translateX(-50%) translateY(0)}}}}
+#photo-frame{{width:940px;padding:10px;border:4px dashed #d4e300;border-radius:8px;box-shadow:0 0 45px rgba(212,227,0,0.35), inset 0 0 30px rgba(0,0,0,0.4);background:rgba(0,0,0,0.25)}}
+#photo-frame img,#photo-frame video,.no-photo{{width:100%;height:490px;object-fit:cover;border-radius:4px;display:block}}
 @keyframes kb{{from{{transform:scale(1)}}to{{transform:scale(1.1)}}}}
-.no-photo{{background:#222}}
-#headline-box{{position:relative;margin:-80px 50px 0;background:#fff;border-radius:4px;padding:24px 30px;box-shadow:0 15px 50px rgba(0,0,0,0.8)}}
-#headline-box h2{{color:#111;font-family:Georgia,serif;font-size:36px;font-weight:800;line-height:1.3}}
-#circle{{position:absolute;left:{cx-45}px;top:{cy-45}px;width:90px;height:90px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 0 30px {c['state']};z-index:15;animation:popIn 0.5s 1s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0}}
+.no-photo{{background:radial-gradient(circle at 50% 40%, #202020 0%, #0a0a0a 85%)}}
+#headline-box{{margin:10px 12px 12px;background:#fff;border-radius:4px;padding:20px 26px;box-shadow:0 12px 40px rgba(0,0,0,0.85)}}
+#headline-box h2{{color:#111;font-family:Georgia,'Times New Roman',serif;font-size:34px;font-weight:800;line-height:1.3}}
+#circle{{position:absolute;left:{cx - 70:.0f}px;top:{cy - 70:.0f}px;width:140px;height:140px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 0 26px rgba(255,255,255,0.8), 0 0 60px {c['state']};z-index:15;animation:popIn 0.5s 0.9s cubic-bezier(0.34,1.56,0.64,1) forwards;opacity:0}}
 @keyframes popIn{{from{{opacity:0;transform:scale(0)}}to{{opacity:1;transform:scale(1)}}}}
-#circle span{{color:#8b0000;font-size:48px;font-weight:900;font-family:Arial Black}}
+#circle span{{color:#b3161c;font-size:86px;font-weight:900;font-family:Georgia,'Times New Roman',serif}}
+#connector{{position:absolute;inset:0;width:1080px;height:1920px;z-index:14;pointer-events:none}}
+#connector path{{fill:none;stroke:#d8e000;stroke-width:5.5;stroke-linecap:round;filter:url(#lglow);stroke-dasharray:1400;stroke-dashoffset:1400;animation:drawLine 0.7s 1.2s ease-out forwards}}
+@keyframes drawLine{{to{{stroke-dashoffset:0}}}}
 </style></head><body>
 <div id="map-wrapper">
   <img id="map-bg" src="data:image/jpeg;base64,{bg_b64}"/>
-  <svg id="state-svg" viewBox="0 0 1080 1920"><path id="state-path" d="{state_svg}"/></svg>
+  <svg id="state-svg" viewBox="0 0 1080 1920">
+    <defs>
+      <filter id="sglow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <filter id="lglow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+    <path id="outline-path" d="{outline}"/>
+    <path id="state-path" d="{state_svg}"/>
+  </svg>
 </div>
+<svg id="connector" viewBox="0 0 1080 1920"><path d="{d_path}"/></svg>
 <div id="circle"><span>{number}</span></div>
 <div id="frame-wrap">
-  <div id="photo-frame">{media_html}</div>
-  <div id="headline-box"><h2>{safe_headline}</h2></div>
+  <div id="photo-frame">{media_html}
+    <div id="headline-box"><h2>{safe_headline}</h2></div>
+  </div>
 </div>
+{_watermark('tr' if not card_top else 'bl')}
 </body></html>"""
 
     # Deep style
@@ -621,12 +657,15 @@ html,body{{width:1080px;height:1920px;background:#111;overflow:hidden;font-famil
 @keyframes fl1{{0%,45%{{opacity:1}}55%,100%{{opacity:0}}}}
 @keyframes fl2{{0%,45%{{opacity:0}}55%,100%{{opacity:1}}}}
 #msg{{flex:1;background:#333;color:#fff;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:32px}}
-#iglogo{{position:absolute;top:64%;left:50%;transform:translateX(-50%);margin-top:60px;text-align:center;animation:logoIn 1s 0.8s ease-out forwards;opacity:0}}
-@keyframes logoIn{{from{{opacity:0;transform:translateX(-50%) scale(0.5)}}to{{opacity:1;transform:translateX(-50%) scale(1)}}}}
-#iglogo svg{{width:110px;height:110px}}
+#iglogo{{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;z-index:30;animation:logoIn 1s 2.6s ease-out forwards;opacity:0}}
+#iglogo svg{{width:220px;height:220px;filter:drop-shadow(0 0 30px rgba(255,255,255,0.35))}}
+#dim{{position:absolute;inset:0;background:rgba(0,0,0,0.82);opacity:0;animation:dimIn 1s 2.2s ease-out forwards;z-index:20;pointer-events:none}}
+@keyframes dimIn{{to{{opacity:1}}}}
+@keyframes logoIn{{from{{opacity:0;transform:translate(-50%,-50%) scale(0.5)}}to{{opacity:1;transform:translate(-50%,-50%) scale(1)}}}}
 #bigh{{margin-top:24px;color:#fff;font-size:38px;font-weight:800;letter-spacing:2px;text-shadow:0 2px 10px #000}}
 </style></head><body>
 {_bg_layer(sat, blur=0, bright=0.4)}
+<div id="dim"></div>
 <div id="card">
   <div id="row"><div id="avatar"><div id="avatar-inner"><svg viewBox="0 0 44 46"><path d="{_mini_india_path()}" fill="#fff"/></svg></div></div>
   <div id="name">indiainlast24hr<svg viewBox="0 0 24 24" fill="#3897f0"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div></div>
@@ -656,7 +695,7 @@ def outro_video():
     cache = Path(settings.output_dir) / "outro.mp4"
     if cache.exists():
         return str(cache)
-    webm = record_html(outro_html(4), 4, "outro")
+    webm = record_html(outro_html(6), 6, "outro")
     import imageio_ffmpeg as ioff, subprocess
     subprocess.run([ioff.get_ffmpeg_exe(), "-y", "-i", webm, "-vf", "fps=30",
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", str(cache)], check=True, capture_output=True)

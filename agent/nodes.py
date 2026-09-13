@@ -310,6 +310,10 @@ def publish(state):
     except Exception as e: logger.error(f"Publish failed: {e}"); return {}
 
 def select_format(state):
+    cfg = (settings.default_format or "auto").lower()
+    if cfg in ("roundup", "deep_dive"):
+        logger.info(f"Format: {cfg.upper()} (configured)")
+        return {"reel_format": cfg}
     hour = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5, minutes=30)).hour
     fmt = "roundup" if 18 <= hour < 21 else "deep_dive"
     logger.info(f"Time {hour}:00 IST → Format: {fmt.upper()}")
@@ -330,7 +334,8 @@ def extract_roundup(state):
     ALIASES = {"jammu kashmir": "jammu and kashmir", "j&k": "jammu and kashmir", "orissa": "odisha",
                "uk": "uttarakhand", "up": "uttar pradesh"}
     built = []
-    for i, item in enumerate(items[:8]):
+    theme_cycle = ["purple", "orange", "green", "red", "blue"]
+    for i, item in enumerate(items[:max(3, settings.stories_count)]):
         loc = (item.location or "").lower(); head = (item.headline or "").lower()
         state_name = item.state or ""
         if not state_name:
@@ -341,7 +346,7 @@ def extract_roundup(state):
                            breaking_headline=_cut(item.headline, 60).upper(), headline=_cut(item.headline, 60).upper(),
                            location=item.location or "INDIA", state=state_name, style="roundup",
                            breaking_image_query=item.image_query, narration=item.narration,
-                           theme="red" if disaster else "purple"))
+                           theme="red" if disaster else theme_cycle[i % len(theme_cycle)]))
     scenes = [Scene(type="map_intro", country="India", pin="India", overlay_text="INDIA IN LAST 24 HOURS", narration=intro, theme="purple").model_dump()]
     scenes += [sc.model_dump() for sc in built]
     return {"schema": {"scenes": scenes, "caption": (resp.caption if resp and hasattr(resp, "caption") else "") or state["articles"][0]["title"],
