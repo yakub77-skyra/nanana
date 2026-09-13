@@ -2,8 +2,11 @@ import os
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# C: is often full — keep the Playwright browser on the workspace drive
-os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", r"E:\playwright-browsers")
+# C: is often full on Windows — keep the Playwright browser on the workspace drive.
+# Only apply on Windows; on Linux/CI, playwright install puts browsers in the
+# default path (~/.cache/ms-playwright) and this override would break it.
+if os.name == "nt":
+    os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", r"E:\playwright-browsers")
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
